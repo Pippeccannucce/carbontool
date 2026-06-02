@@ -183,6 +183,7 @@ const STORAGE_KEYS = {
   dashboardViews:    'crrem:dashboardViews:v1',
   mapMetric:         'crrem:mapMetric:v1',
   dashUiState:       'crrem:dashUiState:v1',
+  sampleMode:        'crrem:sampleMode:v1',
 };
 
 // ── Built-in 500-building sample dataset ─────────────────────────────────────
@@ -879,123 +880,100 @@ function directDownload(filename, rows) {
 }
 
 // === Global storage write queue ===
-// All window.storage.set calls are serialised through this promise chain so that
-// rapid simultaneous writes (e.g. "Reset everything" firing 6 setState calls in
-// the same tick) don't race each other and trigger backend 500 errors.
-let __storageQueue = Promise.resolve();
-function enqueueStorageWrite(key, json) {
-  return new Promise((resolve, reject) => {
-    __storageQueue = __storageQueue.then(async () => {
-      try {
-        const result = await window.storage.set(key, json);
-        resolve(result);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-}
-
-// Chunk size: 600 KB — well under the ~1 MB practical backend limit
-const STORAGE_CHUNK_SIZE = 600_000;
+// === localStorage storage layer ===
+// Chunks data across multiple localStorage keys to handle the 5 MB per-item limit.
+const STORAGE_CHUNK_SIZE = 400_000; // 400 KB per chunk — safe for localStorage
 const CHUNK_META_SUFFIX = ':_chunks';
 
-// Write value to storage, chunking if necessary.
-// Large arrays are split into key:_chunk:0, key:_chunk:1 … and a
-// key:_chunks metadata key stores the count so reads can reassemble.
-async function storageSetChunked(key, json) {
+function lsSet(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
+function lsGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function lsDel(key) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
+function storageSetChunked(key, json) {
+  // Clean up old chunks first
+  const oldMeta = lsGet(key + CHUNK_META_SUFFIX);
+  const oldCount = oldMeta ? parseInt(oldMeta, 10) : 0;
+  for (let i = 0; i < oldCount; i++) lsDel(key + ':_chunk:' + i);
+
   if (json.length <= STORAGE_CHUNK_SIZE) {
-    // Small enough — single write. Delete any stale chunk keys first.
-    await enqueueStorageWrite(key, json).catch(() => {});
-    await enqueueStorageWrite(key + CHUNK_META_SUFFIX, '0').catch(() => {});
+    lsSet(key, json);
+    lsSet(key + CHUNK_META_SUFFIX, '1');
   } else {
-    // Split into chunks
+    lsDel(key);
     const chunks = [];
     for (let i = 0; i < json.length; i += STORAGE_CHUNK_SIZE) {
       chunks.push(json.slice(i, i + STORAGE_CHUNK_SIZE));
     }
-    // Write all chunks then the metadata key
     for (let i = 0; i < chunks.length; i++) {
-      await enqueueStorageWrite(key + ':_chunk:' + i, chunks[i]).catch(() => {});
+      if (!lsSet(key + ':_chunk:' + i, chunks[i])) {
+        throw new Error('QuotaExceeded');
+      }
     }
-    await enqueueStorageWrite(key + CHUNK_META_SUFFIX, String(chunks.length)).catch(() => {});
-    // Delete the plain key so old non-chunked reads don't pick up stale data
-    await window.storage.delete(key).catch(() => {});
+    lsSet(key + CHUNK_META_SUFFIX, String(chunks.length));
   }
 }
 
-// Read value from storage, reassembling chunks if present.
-async function storageGetChunked(key) {
+function storageGetChunked(key) {
   try {
-    const metaResult = await window.storage.get(key + CHUNK_META_SUFFIX).catch(() => null);
-    const chunkCount = metaResult?.value ? parseInt(metaResult.value, 10) : 0;
+    const meta = lsGet(key + CHUNK_META_SUFFIX);
+    const chunkCount = meta ? parseInt(meta, 10) : 0;
     if (chunkCount > 1) {
-      // Reassemble from chunks
       let combined = '';
       for (let i = 0; i < chunkCount; i++) {
-        const chunk = await window.storage.get(key + ':_chunk:' + i).catch(() => null);
-        if (!chunk?.value) return null; // incomplete — treat as missing
-        combined += chunk.value;
+        const chunk = lsGet(key + ':_chunk:' + i);
+        if (chunk === null) return null;
+        combined += chunk;
       }
       return combined;
     }
-    // Single key (chunk count 0 or 1)
-    const plain = await window.storage.get(key).catch(() => null);
-    if (plain?.value) return plain.value;
-    // Fall back: maybe it was stored as chunk 0
-    if (chunkCount === 1) {
-      const chunk0 = await window.storage.get(key + ':_chunk:0').catch(() => null);
-      return chunk0?.value || null;
-    }
+    // Single chunk or legacy single key
+    const plain = lsGet(key);
+    if (plain) return plain;
+    if (chunkCount === 1) return lsGet(key + ':_chunk:0');
     return null;
   } catch { return null; }
 }
 
-// === Storage hook (uses window.storage; degrades gracefully if unavailable) ===
+// === Storage hook (uses localStorage; persists across browser sessions) ===
 function useStorage(key, defaultValue) {
   const [value, setValue] = useState(defaultValue);
   const [loaded, setLoaded] = useState(false);
+  const [storageError, setStorageError] = useState(null);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        if (typeof window !== 'undefined' && window.storage) {
-          const raw = await storageGetChunked(key);
-          if (!cancelled && raw) {
-            try { setValue(JSON.parse(raw)); } catch {}
-          }
-        }
-      } catch {}
-      if (!cancelled) setLoaded(true);
-    })();
-    return () => { cancelled = true; };
+    try {
+      const raw = storageGetChunked(key);
+      if (raw) {
+        try { setValue(JSON.parse(raw)); } catch {}
+      }
+    } catch {}
+    setLoaded(true);
   }, [key]);
 
   const valueRef = useRef(value);
   valueRef.current = value;
-  const [storageError, setStorageError] = useState(null);
 
-  const persist = useCallback(async (newValueOrUpdater) => {
+  const persist = useCallback((newValueOrUpdater) => {
     const resolved = typeof newValueOrUpdater === 'function'
       ? newValueOrUpdater(valueRef.current)
       : newValueOrUpdater;
     setValue(resolved);
     valueRef.current = resolved;
     try {
-      if (typeof window !== 'undefined' && window.storage) {
-        await storageSetChunked(key, JSON.stringify(resolved));
-        setStorageError(null);
-      }
+      storageSetChunked(key, JSON.stringify(resolved));
+      setStorageError(null);
     } catch (e) {
       const msg = e?.message || '';
-      const isBackend500 = msg.includes('Internal server error') || msg.includes('500');
       const isQuota = msg.includes('quota') || msg.includes('QuotaExceeded');
-      if (isBackend500) return; // silent — data is fine in memory
-      const friendlyMsg = isQuota
+      setStorageError(isQuota
         ? 'Storage full — data may not persist after reload. Try clearing old data.'
-        : 'Could not save data (' + msg + ')';
-      setStorageError(friendlyMsg);
+        : 'Could not save data (' + msg + ')');
     }
   }, [key]);
 
@@ -1569,8 +1547,8 @@ function buildingsWithoutUserBills(buildings, energy, bills) {
   return new Set([...bidsWithEnergy].filter(id => !bidsWithUserBills.has(id)));
 }
 
-function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, setBills, setFuels, setEfs, setRetrofits, setAssignments, push }) {
-  const sampleDataLoaded = buildings.length > 0 || energy.length > 0;
+function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, setBills, setFuels, setEfs, setRetrofits, setAssignments, push, onSampleLoad }) {
+  const sampleDataLoaded = buildings.length > 0 && buildings[0]?.id === 'xaji0y6d';
   const [confirmClear, setConfirmClear] = useState(null); // null | 'energy' | 'portfolio' | 'all'
 
   const CLEAR_ACTIONS = {
@@ -1635,6 +1613,7 @@ function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, s
       await setEnergy(newEnergy);
       await setBills(newBills);
       push('Loaded ' + newBuildings.length + ' buildings, ' + newEnergy.length.toLocaleString() + ' energy readings and ' + newBills.length.toLocaleString() + ' utility bills', 'success');
+      onSampleLoad?.();
     } catch (e) {
       push('Failed to load sample data: ' + e.message, 'error');
     }
@@ -2818,7 +2797,7 @@ function CurrencySettingsModal({ open, onClose, reportingCurrency, setReportingC
   );
 }
 
-function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, reportingCurrency, exchangeRates, push, startYear, setStartYear, startMonth, setStartMonth, endYear, setEndYear, endMonth, setEndMonth, onDirtyChange, saveRef }) {
+function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, reportingCurrency, exchangeRates, push, startYear, setStartYear, startMonth, setStartMonth, endYear, setEndYear, endMonth, setEndMonth, onDirtyChange, saveRef, onNavigate }) {
   // ── Date range — state lifted to App so it survives tab navigation ─────────
 
   const monthCols = useMemo(() => {
@@ -3426,6 +3405,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
 
   // ── Selection & edit (shared logic, tag = 'e' | 'o') ─────────────────────
   const [anchor,   setAnchor]   = useState(null); // { tag, rowIdx, colIdx }
+  const anchorRef = useRef(null); // always-current mirror for use in paste/copy closures
   const [focusSel, setFocusSel] = useState(null); // { tag, rowIdx, colIdx }
   const [editCell, setEditCell] = useState(null); // { tag, rowIdx, colIdx }
   const [editVal,  setEditVal]  = useState('');
@@ -3499,6 +3479,10 @@ const selRange = useMemo(() => {
   const inRange = (tag, ri, ci) => selRange && selRange.tag === tag && ri >= selRange.r0 && ri <= selRange.r1 && ci >= selRange.c0 && ci <= selRange.c1;
   const isAnch  = (tag, ri, ci) => anchor && anchor.tag === tag && anchor.rowIdx === ri && anchor.colIdx === ci;
 
+  const setAnchorAndRef = useCallback((val) => {
+    anchorRef.current = val;
+    setAnchor(val);
+  }, []);
   const rowsFor  = (tag) => tag === 'e' ? eRows : tag === 'b' ? bRows : oRows;
   const mutateFor = (tag) => tag === 'e' ? mutateE : tag === 'b' ? mutateB : mutateO;
 
@@ -3531,7 +3515,7 @@ const selRange = useMemo(() => {
     if (e.shiftKey && anchor && anchor.tag === tag) {
       setFocusSel({ tag, rowIdx, colIdx });
     } else {
-      setAnchor({ tag, rowIdx, colIdx });
+      setAnchorAndRef({ tag, rowIdx, colIdx });
       setFocusSel({ tag, rowIdx, colIdx });
       dragState.current = { tag, x: e.clientX, y: e.clientY, active: false };
     }
@@ -3665,8 +3649,9 @@ const selRange = useMemo(() => {
       push('Pasted ' + dataRows.length + ' rows', 'success'); return;
     }
 
-    if (!anchor || anchor.tag !== tag) return;
-    const { rowIdx: startR, colIdx: startC } = anchor;
+    const _anchor = anchorRef.current;
+    if (!_anchor || _anchor.tag !== tag) return;
+    const { rowIdx: startR, colIdx: startC } = _anchor;
     const rows = rowsFor(tag);
     const pasteH = grid.length, pasteW = grid[0]?.length || 1;
 
@@ -3703,14 +3688,14 @@ const selRange = useMemo(() => {
     if (editCell && editCell.tag === tag) return;
     // Block scroll-causing keys only when we are in navigation mode (not editing)
     const SCROLL_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End'];
-    if (SCROLL_KEYS.includes(e.key)) e.preventDefault();
+    if (SCROLL_KEYS.includes(e.key)) { e.preventDefault(); e.stopPropagation(); }
     const isCtrl = e.ctrlKey || e.metaKey;
     if (isCtrl && e.key === 'z') { e.preventDefault(); undo(); return; }
     if (isCtrl && e.key === 'c') { e.preventDefault(); copySelection(); return; }
     if (isCtrl && e.key === 'a') {
       e.preventDefault();
       const rows = rowsFor(tag);
-      if (rows.length && monthCols.length) { setAnchor({ tag, rowIdx:0, colIdx:0 }); setFocusSel({ tag, rowIdx: rows.length-1, colIdx: monthCols.length-1 }); }
+      if (rows.length && monthCols.length) { setAnchorAndRef({ tag, rowIdx:0, colIdx:0 }); setFocusSel({ tag, rowIdx: rows.length-1, colIdx: monthCols.length-1 }); }
       return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); clearRange(); return; }
@@ -3752,7 +3737,7 @@ const selRange = useMemo(() => {
         setFocusSel({ tag, rowIdx: nr, colIdx: nc });
       } else {
         // Move: both anchor and focus go to new cell
-        setAnchor({ tag, rowIdx: nr, colIdx: nc });
+        setAnchorAndRef({ tag, rowIdx: nr, colIdx: nc });
         setFocusSel({ tag, rowIdx: nr, colIdx: nc });
       }
       return;
@@ -3760,12 +3745,12 @@ const selRange = useMemo(() => {
     if (e.key === 'Tab') {
       e.preventDefault();
       const nc = e.shiftKey ? Math.max(0,curA.colIdx-1) : Math.min(monthCols.length-1,curA.colIdx+1);
-      setAnchor({ tag, rowIdx:curA.rowIdx, colIdx:nc }); setFocusSel({ tag, rowIdx:curA.rowIdx, colIdx:nc }); return;
+      setAnchorAndRef({ tag, rowIdx:curA.rowIdx, colIdx:nc }); setFocusSel({ tag, rowIdx:curA.rowIdx, colIdx:nc }); return;
     }
     if (e.key === 'Enter' && !(e.ctrlKey||e.metaKey)) {
       e.preventDefault();
       const nr = Math.min(rows.length-1, curA.rowIdx+1);
-      setAnchor({ tag, rowIdx:nr, colIdx:curA.colIdx }); setFocusSel({ tag, rowIdx:nr, colIdx:curA.colIdx }); return;
+      setAnchorAndRef({ tag, rowIdx:nr, colIdx:curA.colIdx }); setFocusSel({ tag, rowIdx:nr, colIdx:curA.colIdx }); return;
     }
     if (e.key === 'F2' || (e.key.length === 1 && !isCtrl && curA)) {
       const startVal = e.key.length===1 && e.key !== ' ' ? e.key : (rows[curA.rowIdx]?.cells?.[monthCols[curA.colIdx]?.key] ?? '');
@@ -3786,7 +3771,7 @@ const selRange = useMemo(() => {
     const { tag, rowIdx, colIdx } = editCell;
     const rows = rowsFor(tag);
     const focusGrid = () => (tag==='e'?eGridRef:tag==='b'?bGridRef:oGridRef).current?.focus({ preventScroll: true });
-    const moveTo = (nr, nc) => { setAnchor({ tag, rowIdx: nr, colIdx: nc }); setFocusSel({ tag, rowIdx: nr, colIdx: nc }); };
+    const moveTo = (nr, nc) => { setAnchorAndRef({ tag, rowIdx: nr, colIdx: nc }); setFocusSel({ tag, rowIdx: nr, colIdx: nc }); };
 
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -3838,7 +3823,12 @@ const selRange = useMemo(() => {
 if (buildings.length===0) return (
     <div style={{padding:'32px 48px',maxWidth:1400,margin:'0 auto'}}>
       <PageHeader eyebrow="Stage 02 — energy data" title="Energy data" description="Add monthly energy consumption and occupancy for each building." />
-      <EmptyState icon={Database} title="Add buildings first" message="Add at least one building in the Portfolio tab first." />
+      <EmptyState
+        icon={Database}
+        title="Add buildings first"
+        message="Add at least one building in the Portfolio tab first."
+        action={<Button variant="secondary" icon={Building2} onClick={() => onNavigate?.('portfolio')}>Go to Portfolio</Button>}
+      />
     </div>
   );
 
@@ -4288,7 +4278,7 @@ if (buildings.length===0) return (
           bEditValRef.current = val;
           setBEdit({ ri, ci });
           setBEditVal(val);
-          setAnchor({ tag: 'b', rowIdx: ri, colIdx: ci });
+          setAnchorAndRef({ tag: 'b', rowIdx: ri, colIdx: ci });
           setFocusSel({ tag: 'b', rowIdx: ri, colIdx: ci });
           if (selectAll) setTimeout(() => bInputRef.current?.select(), 0);
           else setTimeout(() => { const el = bInputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0);
@@ -4473,7 +4463,7 @@ if (buildings.length===0) return (
                                   if (e2.shiftKey && anchor?.tag === 'b') {
                                     setFocusSel({ tag: 'b', rowIdx, colIdx });
                                   } else {
-                                    setAnchor({ tag: 'b', rowIdx, colIdx });
+                                    setAnchorAndRef({ tag: 'b', rowIdx, colIdx });
                                     setFocusSel({ tag: 'b', rowIdx, colIdx });
                                     dragState.current = { tag: 'b', x: e2.clientX, y: e2.clientY, active: false };
                                   }
@@ -4815,7 +4805,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
   const handleKeyDown = useCallback((e) => {
     if (editCell) return;
     const SCROLL_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End'];
-    if (SCROLL_KEYS.includes(e.key)) e.preventDefault();
+    if (SCROLL_KEYS.includes(e.key)) { e.preventDefault(); e.stopPropagation(); }
     const isCtrl = e.ctrlKey || e.metaKey;
     if (isCtrl && e.key === 'z') { e.preventDefault(); undoEf(); return; }
     if (isCtrl && e.key === 'c') { e.preventDefault(); copySelection(); return; }
@@ -6343,44 +6333,19 @@ const EPC_COLOR = { 'A+++':'#00753a','A++':'#00953a','A+':'#00b33c','A':'#50b849
 // more permissive — proven by Leaflet successfully loading from cdnjs.
 async function nominatimGeocode(address, countryCode) {
   const fullQuery = [address, countryCode].filter(Boolean).join(', ');
-  const q = encodeURIComponent(fullQuery);
 
-  // Strategy 1: Photon (Komoot) — open CORS, no API key required
+  // Use server-side proxy to avoid CORS/CSP issues on Vercel
   try {
-    const res = await fetch(
-      `https://photon.komoot.io/api/?q=${q}&limit=1&lang=en`,
-      { headers: { 'Accept': 'application/json' } }
-    );
+    const res = await fetch(`/api/geocode?q=${encodeURIComponent(fullQuery)}`);
     if (res.ok) {
       const data = await res.json();
-      const feat = data?.features?.[0];
-      if (feat) {
-        const [lon, lat] = feat.geometry.coordinates;
-        return { lat, lon };
-      }
-      console.warn('[geocode] Photon: no results for', fullQuery);
+      if (data.lat != null && data.lon != null) return { lat: data.lat, lon: data.lon };
+      console.warn('[geocode] proxy: no results for', fullQuery);
       return null;
     }
-    console.warn('[geocode] Photon HTTP', res.status, 'for', fullQuery);
+    console.warn('[geocode] proxy HTTP', res.status, 'for', fullQuery);
   } catch (err) {
-    console.warn('[geocode] Photon failed for', fullQuery, ':', err.message);
-  }
-
-  // Strategy 2: Nominatim via CORS proxy
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
-      { headers: { 'Accept': 'application/json', 'Accept-Language': 'en' } }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data[0]) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-      console.warn('[geocode] Nominatim: no results for', fullQuery);
-      return null;
-    }
-    console.warn('[geocode] Nominatim HTTP', res.status, 'for', fullQuery);
-  } catch (err) {
-    console.warn('[geocode] Nominatim failed for', fullQuery, ':', err.message);
+    console.warn('[geocode] proxy failed for', fullQuery, ':', err.message);
   }
 
   return null;
@@ -6445,8 +6410,8 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
   useEffect(() => {
     (async () => {
       try {
-        const stored = await window.storage.get(STORAGE_KEYS.geocache);
-        if (stored?.value) setGeocache(JSON.parse(stored.value));
+        const stored = storageGetChunked(STORAGE_KEYS.geocache);
+        if (stored) try { setGeocache(JSON.parse(stored)); } catch {}
       } catch (_) {}
     })();
   }, []);
@@ -6458,7 +6423,7 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
     if (Object.keys(geocache).length === 0) return;
     clearTimeout(geocacheWriteTimer.current);
     geocacheWriteTimer.current = setTimeout(async () => {
-      try { await window.storage.set(STORAGE_KEYS.geocache, JSON.stringify(geocache)); } catch (_) {}
+      try { storageSetChunked(STORAGE_KEYS.geocache, JSON.stringify(geocache)); } catch (_) {}
     }, 1000); // 1 s debounce — batches rapid geocode results into a single write
     return () => clearTimeout(geocacheWriteTimer.current);
   }, [geocache]);
@@ -7366,8 +7331,8 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   useEffect(() => {
     (async () => {
       try {
-        const stored = await window.storage?.get(STORAGE_KEYS.dashboardViews);
-        if (stored?.value) {
+        const stored = storageGetChunked(STORAGE_KEYS.dashboardViews);
+        if (stored) {
           const parsed = JSON.parse(stored.value);
           if (Array.isArray(parsed) && parsed.length > 0) setViewsRaw(parsed);
         }
@@ -7383,7 +7348,7 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
       // Schedule debounced write; clear any pending one first
       clearTimeout(viewsWriteTimer.current);
       viewsWriteTimer.current = setTimeout(async () => {
-        try { await window.storage?.set(STORAGE_KEYS.dashboardViews, JSON.stringify(next)); } catch (_) {}
+        try { storageSetChunked(STORAGE_KEYS.dashboardViews, JSON.stringify(next)); } catch (_) {}
       }, 600);
       return next;
     });
@@ -10292,7 +10257,7 @@ function ExportRetrofitMenu({ retrofits, assignments, onExportMeasures, onExport
   );
 }
 
-function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, assignments, setAssignments, baseYear, baseMonth, push, filterCountries, setFilterCountries, filterAssetClasses, setFilterAssetClasses, selectedIds, setSelectedIds }) {
+function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, assignments, setAssignments, baseYear, baseMonth, push, filterCountries, setFilterCountries, filterAssetClasses, setFilterAssetClasses, selectedIds, setSelectedIds, onNavigate }) {
   const [showModal, setShowModal] = useState(false);
   const [editingRetrofit, setEditingRetrofit] = useState(null);
   const [assignBuilding, setAssignBuilding] = useState(null);
@@ -10474,6 +10439,31 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
 
   const retrofitName = (id) => [...BUILT_IN_MEASURES, ...retrofits].find(r => r.id === id)?.name ?? '(deleted)';
   const fuelLabel = (code) => fuels.find(f => f.code === code)?.name ?? code;
+
+  // ── Empty state guard ──────────────────────────────────────────────────────
+  if (buildings.length === 0) return (
+    <div style={{ padding: '32px 48px', maxWidth: 1400, margin: '0 auto' }}>
+      <PageHeader eyebrow="Stage 04 — retrofits" title="Retrofit measures" description="Model the carbon and energy impact of retrofit interventions across your portfolio." />
+      <EmptyState
+        icon={Wrench}
+        title="Add buildings first"
+        message="Add your portfolio buildings before modelling retrofit measures."
+        action={<Button variant="secondary" icon={Building2} onClick={() => onNavigate?.('portfolio')}>Go to Portfolio</Button>}
+      />
+    </div>
+  );
+
+  if (energy.length === 0) return (
+    <div style={{ padding: '32px 48px', maxWidth: 1400, margin: '0 auto' }}>
+      <PageHeader eyebrow="Stage 04 — retrofits" title="Retrofit measures" description="Model the carbon and energy impact of retrofit interventions across your portfolio." />
+      <EmptyState
+        icon={Wrench}
+        title="No energy data yet"
+        message="Upload monthly energy consumption data before modelling retrofit measures. Retrofit impact is calculated from your buildings\'s baseline energy use."
+        action={<Button variant="secondary" icon={BarChart3} onClick={() => onNavigate?.('energy')}>Go to Energy tab</Button>}
+      />
+    </div>
+  );
 
   return (
     <div style={{ padding: '32px 48px', maxWidth: 1400, margin: '0 auto' }}>
@@ -11167,6 +11157,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, [activeTab]);
   const [buildings, setBuildings, buildingsLoaded, buildingsStorageErr] = useStorage(STORAGE_KEYS.buildings, []);
+  const [sampleMode, setSampleMode] = useStorage(STORAGE_KEYS.sampleMode, false);
 
   // Lifted: Energy tab date range
   const now = new Date();
@@ -11258,7 +11249,7 @@ export default function App() {
         minHeight: 48,
       }}>
         <span style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: '#ffffff', letterSpacing: '-0.01em', whiteSpace: 'nowrap', marginRight: 8 }}>
-          CRREM Carbon Tool
+          CarbonTool
         </span>
         <span style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginRight: 16, whiteSpace: 'nowrap' }}>
           v0.9
@@ -11308,10 +11299,25 @@ export default function App() {
           reportingCurrency={reportingCurrency} setReportingCurrency={setReportingCurrency}
           exchangeRates={exchangeRates} setExchangeRates={setExchangeRates}
         />
+        {/* Clear saved data button */}
+        <button
+          onClick={() => {
+            if (!window.confirm('Clear all saved data? This will remove all buildings, energy data, bills, and settings from this browser. This cannot be undone.')) return;
+            try {
+              const keys = Object.keys(localStorage).filter(k => k.startsWith('crrem:'));
+              keys.forEach(k => localStorage.removeItem(k));
+            } catch {}
+            window.location.reload();
+          }}
+          title="Clear all saved data from this browser"
+          style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', fontFamily: T.body, fontSize: 11, flexShrink: 0, marginLeft: 4 }}
+        >
+          Clear data
+        </button>
       </header>
 
       {/* ── Sample data disclaimer banner ────────────────────────────────────── */}
-      {(buildings.length > 0 || energy.length > 0) && (
+      {sampleMode && (
         <div style={{
           background: T.amberBg, borderBottom: '1px solid ' + T.amberSoft,
           padding: '8px 24px', display: 'flex', alignItems: 'center', gap: 8,
@@ -11324,21 +11330,21 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} />}
+      {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} onSampleLoad={() => setSampleMode(true)} />}
       {activeTab === 'portfolio' && <PortfolioTab buildings={buildings} setBuildings={setBuildings} energy={energy} setEnergy={setEnergy} setBills={setBills} setAssignments={setAssignments} push={push} />}
-      {activeTab === 'energy' && <EnergyTab buildings={buildings} energy={energy} setEnergy={setEnergy} bills={bills} setBills={setBills} fuels={fuels} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} push={push} startYear={energyStartYear} setStartYear={setEnergyStartYear} startMonth={energyStartMonth} setStartMonth={setEnergyStartMonth} endYear={energyEndYear} setEndYear={setEnergyEndYear} endMonth={energyEndMonth} setEndMonth={setEnergyEndMonth} onDirtyChange={setEnergyDirty} saveRef={energySaveRef} />}
+      {activeTab === 'energy' && <EnergyTab buildings={buildings} energy={energy} setEnergy={setEnergy} bills={bills} setBills={setBills} fuels={fuels} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} push={push} startYear={energyStartYear} setStartYear={setEnergyStartYear} startMonth={energyStartMonth} setStartMonth={setEnergyStartMonth} endYear={energyEndYear} setEndYear={setEnergyEndYear} endMonth={energyEndMonth} setEndMonth={setEnergyEndMonth} onDirtyChange={setEnergyDirty} saveRef={energySaveRef} onNavigate={navigateTo} />}
       {activeTab === 'factors' && <FactorsTab fuels={fuels} setFuels={setFuels} efs={efs} setEfs={setEfs} electricityEfs={electricityEfs} setElectricityEfs={setElectricityEfs} push={push} />}
       <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}><DashboardTab buildings={buildings} energy={energy} bills={bills} fuels={fuels} efs={efs} retrofits={retrofits} assignments={assignments} baseYear={baseYear} setBaseYear={setBaseYear} baseMonth={baseMonth} setBaseMonth={setBaseMonth} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} allLoaded={allLoaded} onNavigate={navigateTo} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} /></div>
-      {activeTab === 'retrofits' && <RetrofitsTab buildings={buildings} energy={energy} fuels={fuels} efs={efs} retrofits={retrofits} setRetrofits={setRetrofits} assignments={assignments} setAssignments={setAssignments} baseYear={baseYear} baseMonth={baseMonth} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} />}
+      {activeTab === 'retrofits' && <RetrofitsTab buildings={buildings} energy={energy} fuels={fuels} efs={efs} retrofits={retrofits} setRetrofits={setRetrofits} assignments={assignments} setAssignments={setAssignments} baseYear={baseYear} baseMonth={baseMonth} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} onNavigate={navigateTo} />}
       {activeTab === 'guide' && <GuideTab activeSection={guideSection} onSectionChange={setGuideSection} />}
 
       <footer style={{
         marginTop: 48, padding: '24px 48px', borderTop: '1px solid ' + T.border,
         fontFamily: T.body, fontSize: 12,
-        color: T.warmGreyLight, display: 'flex', justifyContent: 'space-between',
+        color: T.warmGreyLight, display: 'flex', flexDirection: 'column', gap: 6,
       }}>
-        <span>Built with CRREM Global Pathways V2.04</span>
-        <span>www.crrem.org</span>
+        <span>Pathway and grid emission factor data from the Carbon Risk Real Estate Monitor (CRREM), V2.04 (28 August 2025). <a href="https://www.crrem.org" target="_blank" rel="noopener noreferrer" style={{ color: T.warmGreyLight }}>www.crrem.org</a></span>
+        <span>CarbonTool is an independent project and is not affiliated with or endorsed by CRREM.</span>
       </footer>
 
       {/* ── Nav guard modal — unsaved Energy-tab changes ─────────────────────── */}
