@@ -6345,54 +6345,45 @@ async function nominatimGeocode(address, countryCode) {
   const fullQuery = [address, countryCode].filter(Boolean).join(', ');
   const q = encodeURIComponent(fullQuery);
 
-  // Strategy 1: regular fetch
+  // Strategy 1: Photon (Komoot) — open CORS, no API key required
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&email=crremtool%40example.com`,
+      `https://photon.komoot.io/api/?q=${q}&limit=1&lang=en`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const feat = data?.features?.[0];
+      if (feat) {
+        const [lon, lat] = feat.geometry.coordinates;
+        return { lat, lon };
+      }
+      console.warn('[geocode] Photon: no results for', fullQuery);
+      return null;
+    }
+    console.warn('[geocode] Photon HTTP', res.status, 'for', fullQuery);
+  } catch (err) {
+    console.warn('[geocode] Photon failed for', fullQuery, ':', err.message);
+  }
+
+  // Strategy 2: Nominatim via CORS proxy
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
       { headers: { 'Accept': 'application/json', 'Accept-Language': 'en' } }
     );
     if (res.ok) {
       const data = await res.json();
       if (data && data[0]) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-      console.warn('[geocode] no results for', fullQuery);
+      console.warn('[geocode] Nominatim: no results for', fullQuery);
       return null;
     }
-    console.warn('[geocode] fetch HTTP', res.status, 'for', fullQuery);
+    console.warn('[geocode] Nominatim HTTP', res.status, 'for', fullQuery);
   } catch (err) {
-    console.warn('[geocode] fetch blocked or failed for', fullQuery, '— trying JSONP:', err.message);
+    console.warn('[geocode] Nominatim failed for', fullQuery, ':', err.message);
   }
 
-  // Strategy 2: JSONP fallback (script tag)
-  return new Promise((resolve) => {
-    const cbName = '__crrem_geo_' + Math.random().toString(36).slice(2);
-    let done = false;
-    const cleanup = () => {
-      if (done) return;
-      done = true;
-      try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
-      if (script.parentNode) script.parentNode.removeChild(script);
-    };
-    const timer = setTimeout(() => {
-      console.warn('[geocode] JSONP timeout for', fullQuery, '— likely blocked by CSP. Use manual lat/lng instead.');
-      cleanup();
-      resolve(null);
-    }, 8000);
-    window[cbName] = (data) => {
-      clearTimeout(timer);
-      cleanup();
-      if (data && data[0]) resolve({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
-      else { console.warn('[geocode] JSONP returned no results for', fullQuery); resolve(null); }
-    };
-    const script = document.createElement('script');
-    script.src = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&json_callback=${cbName}`;
-    script.onerror = () => {
-      clearTimeout(timer);
-      console.warn('[geocode] JSONP script load failed for', fullQuery, '— blocked by CSP. Use manual lat/lng.');
-      cleanup();
-      resolve(null);
-    };
-    document.body.appendChild(script);
-  });
+  return null;
 }
 
 // Simplified SVG world basemap — no external fetch, draws land polygons inline.
@@ -11318,6 +11309,20 @@ export default function App() {
           exchangeRates={exchangeRates} setExchangeRates={setExchangeRates}
         />
       </header>
+
+      {/* ── Sample data disclaimer banner ────────────────────────────────────── */}
+      {sampleDataLoaded && (
+        <div style={{
+          background: T.amberBg, borderBottom: '1px solid ' + T.amberSoft,
+          padding: '8px 24px', display: 'flex', alignItems: 'center', gap: 8,
+          fontFamily: T.body, fontSize: 12, color: T.amberText,
+        }}>
+          <AlertTriangle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Sample data only.</strong> All buildings, energy figures, costs, and addresses shown are entirely fictitious and have been generated for demonstration purposes. They do not represent any real properties, organisations, or energy consumption.
+          </span>
+        </div>
+      )}
 
       {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} />}
       {activeTab === 'portfolio' && <PortfolioTab buildings={buildings} setBuildings={setBuildings} energy={energy} setEnergy={setEnergy} setBills={setBills} setAssignments={setAssignments} push={push} />}
