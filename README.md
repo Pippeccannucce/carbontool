@@ -2,7 +2,7 @@
 
 A real estate carbon performance and CRREM pathway analysis tool built with React.
 
-**Live demo:** [your-url-here.vercel.app]
+**Live demo:** [https://carbontool-gilt.vercel.app/]
 
 ---
 
