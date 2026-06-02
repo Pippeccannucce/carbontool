@@ -6522,8 +6522,8 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
   // Trigger geocoding for buildings that are filtered-in and not yet cached
   const cancelRef = useRef(false);
 
-  // Geocodes buildings using the Anthropic API in batches of 10.
-  // Handles rate-limit (529) by waiting and retrying up to 3 times per batch.
+  // Geocodes buildings using the /api/geocode proxy (Photon → Nominatim fallback).
+  // Runs up to CONCURRENCY requests in parallel; updates progress after each resolves.
   const runGeocode = useCallback(async () => {
     const hasManual = b => b.latitude != null && b.latitude !== '' && b.longitude != null && b.longitude !== '';
     const toGeocode = buildings.filter(b => !geocache[b.id] && b.address && !hasManual(b));
@@ -6531,95 +6531,38 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
     setGeocoding(true);
     cancelRef.current = false;
 
-    // Small batches reduce token usage per call, lowering rate-limit pressure.
-    const BATCH = 10;
+    const CONCURRENCY = 5; // parallel requests to /api/geocode
     const newCache = { ...geocache };
     let doneCount = 0;
     let failCount = 0;
-    const batches = [];
-    for (let i = 0; i < toGeocode.length; i += BATCH) batches.push(toGeocode.slice(i, i + BATCH));
 
-    setGeoProgress({ done: 0, total: toGeocode.length, failed: 0, batches: batches.length, batchDone: 0 });
+    setGeoProgress({ done: 0, total: toGeocode.length, failed: 0, batches: 1, batchDone: 0 });
 
-    const callAPI = async (body, retries = 3, baseDelay = 8000) => {
-      for (let attempt = 0; attempt < retries; attempt++) {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (res.ok) return data;
-        const isRateLimit = res.status === 429 || res.status === 529 ||
-          (data?.error?.message || '').toLowerCase().includes('rate limit') ||
-          (data?.error?.message || '').toLowerCase().includes('overloaded');
-        if (isRateLimit && attempt < retries - 1) {
-          // Exponential back-off: 8s, 16s, 32s
-          await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
-          continue;
-        }
-        throw new Error('HTTP ' + res.status + ': ' + (data?.error?.message || JSON.stringify(data)));
-      }
-    };
-
-    for (let bi = 0; bi < batches.length; bi++) {
+    // Process in chunks of CONCURRENCY
+    for (let i = 0; i < toGeocode.length; i += CONCURRENCY) {
       if (cancelRef.current) break;
-      const batch = batches[bi];
+      const chunk = toGeocode.slice(i, i + CONCURRENCY);
 
-      const lines = batch.map((b, idx) => {
+      await Promise.all(chunk.map(async b => {
         const addr = [b.address, b.country ? countryName(b.country) : ''].filter(Boolean).join(', ');
-        return (idx + 1) + '. ' + addr;
-      }).join('\n');
-
-      let rawResponse = '';
-      try {
-        const data = await callAPI({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 60 * batch.length,
-          system: [
-            'You are a geocoding service. Given a numbered list of addresses, return ONLY a JSON array',
-            'with one object per address, each with keys "lat" and "lon" as decimal numbers (5 decimal places).',
-            'Best-effort: use exact street if possible, otherwise city centre, otherwise country centroid.',
-            'Never return null — always return the best approximation.',
-            'No markdown, no code fences, no commentary. Start with [ and end with ].',
-          ].join(' '),
-          messages: [{ role: 'user', content: lines }],
-        });
-
-        rawResponse = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
-        const arrayMatch = rawResponse.match(/\[[\s\S]*\]/);
-        const clean = arrayMatch ? arrayMatch[0] : rawResponse.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim();
-        const results = JSON.parse(clean);
-        if (!Array.isArray(results)) throw new Error('Not an array');
-
-        let nullCount = 0;
-        batch.forEach((b, idx) => {
-          const r = results[idx];
-          if (r && r.lat != null && r.lon != null && !isNaN(r.lat) && !isNaN(r.lon)) {
-            newCache[b.id] = { lat: parseFloat(r.lat), lon: parseFloat(r.lon) };
+        try {
+          const result = await nominatimGeocode(b.address, b.country ? countryName(b.country) : '');
+          if (result && result.lat != null && result.lon != null) {
+            newCache[b.id] = { lat: result.lat, lon: result.lon };
+            setDebugLog(prev => [...prev, { batch: Math.floor(i / CONCURRENCY) + 1, input: addr, raw: JSON.stringify(result), nullCount: 0, ok: true, addresses: [b.address] }]);
           } else {
-            newCache[b.id] = 'failed'; failCount++; nullCount++;
+            newCache[b.id] = 'failed'; failCount++;
+            setDebugLog(prev => [...prev, { batch: Math.floor(i / CONCURRENCY) + 1, input: addr, raw: '(empty)', nullCount: 1, ok: false, error: 'No results', addresses: [b.address] }]);
           }
-        });
-        for (let i = results.length; i < batch.length; i++) {
-          if (!newCache[batch[i].id]) { newCache[batch[i].id] = 'failed'; failCount++; }
+        } catch (e) {
+          newCache[b.id] = 'failed'; failCount++;
+          setDebugLog(prev => [...prev, { batch: Math.floor(i / CONCURRENCY) + 1, input: addr, raw: '', error: e.message, ok: false, addresses: [b.address] }]);
         }
+        doneCount++;
+      }));
 
-        setDebugLog(prev => [...prev, { batch: bi + 1, input: lines, raw: rawResponse, nullCount, ok: true, addresses: batch.map(b => b.address) }]);
-
-      } catch (e) {
-        batch.forEach(b => { newCache[b.id] = 'failed'; failCount++; });
-        setDebugLog(prev => [...prev, { batch: bi + 1, input: lines, raw: rawResponse, error: e.message, ok: false, addresses: batch.map(b => b.address) }]);
-      }
-
-      doneCount += batch.length;
       setGeocache({ ...newCache });
-      setGeoProgress({ done: doneCount, total: toGeocode.length, failed: failCount, batches: batches.length, batchDone: bi + 1 });
-
-      // Pause between batches to stay under rate limits
-      if (bi < batches.length - 1 && !cancelRef.current) {
-        await new Promise(r => setTimeout(r, 3000));
-      }
+      setGeoProgress({ done: doneCount, total: toGeocode.length, failed: failCount, batches: 1, batchDone: 1 });
     }
 
     setGeocoding(false);
