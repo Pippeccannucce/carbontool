@@ -183,7 +183,6 @@ const STORAGE_KEYS = {
   dashboardViews:    'crrem:dashboardViews:v1',
   mapMetric:         'crrem:mapMetric:v1',
   dashUiState:       'crrem:dashUiState:v1',
-  sampleMode:        'crrem:sampleMode:v1',
 };
 
 // ── Built-in 500-building sample dataset ─────────────────────────────────────
@@ -1581,6 +1580,7 @@ function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, s
             lightingType:       r.lighting_type || '',
             hasBMS:             r.has_bms === 'true',
             hasSolarPV:         r.has_solar_pv === 'true',
+            hasEfficientHVAC:   r.has_efficient_hvac === 'true',
             solarPvM2:          parseFloat(r.solar_pv_m2) || 0,
             availableRoofM2:    r.available_roof_m2 !== undefined && r.available_roof_m2 !== '' ? parseFloat(r.available_roof_m2) : null,
             hasDHWHeatPump:     r.has_dhw_heat_pump  === 'true',
@@ -3912,7 +3912,7 @@ if (buildings.length===0) return (
           <Button variant="secondary" icon={Upload} size="sm" onClick={()=>energyFileInputRef.current?.click()}>Upload CSV</Button>
           <Button variant="secondary" icon={Download} size="sm" onClick={() => downloadCsv('energy_template.csv', [{ building_id: 'BUILDING_ID', building_name: 'Building Name (optional)', year: 2024, month: 1, fuel_type: 'electricity', fuel_name: 'Electricity', kwh: 5000 }])}>Template</Button>
           {energy.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyData}>Export data</Button>}
-          <Button variant="secondary" icon={Plus} size="sm" onClick={addERow}>Add row</Button>
+          <Button variant="primary" icon={Plus} size="sm" onClick={addERow}>Add row</Button>
         </div>
       </div>
 
@@ -4064,7 +4064,7 @@ if (buildings.length===0) return (
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => occupancyFileInputRef.current?.click()}>Upload CSV</Button>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyTemplate}>Template</Button>
           {oRows.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyData}>Export data</Button>}
-          <Button variant="secondary" icon={Plus} size="sm" onClick={addORow}>Add row</Button>
+          <Button variant="primary" icon={Plus} size="sm" onClick={addORow}>Add row</Button>
         </div>
       </div>
 
@@ -4231,7 +4231,7 @@ if (buildings.length===0) return (
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => billsFileInputRef.current?.click()}>Upload CSV</Button>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportBillsTemplate}>Template</Button>
           <Button variant="secondary" size="sm" icon={Download} onClick={exportBillsData}>Export data</Button>
-          <Button variant="secondary" icon={Plus} size="sm" onClick={addBRow}>Add row</Button>
+          <Button variant="primary" icon={Plus} size="sm" onClick={addBRow}>Add row</Button>
         </div>
       </div>
       {(() => {
@@ -4251,79 +4251,8 @@ if (buildings.length===0) return (
         // bGridRef is declared at EnergyTab top-level (alongside eGridRef, oGridRef)
         // and shared with handleCellMouseDown / makeGridKeyDown so focus routes correctly.
         // bAnchor/bFocusC have been replaced by the shared anchor/focusSel — local state removed.
-        const [bEdit, setBEdit] = useState(null);
-        const [bEditVal, _setBEditVal] = useState('');
-        // Refs always hold the latest values so commitBEdit never reads stale closures
-        const bEditRef = useRef(null);
-        const bEditValRef = useRef('');
-        const setBEditVal = (v) => { bEditValRef.current = v; _setBEditVal(v); };
-        const bInputRef = useRef(null);
-
-        const commitBEdit = () => {
-          const edit = bEditRef.current;
-          if (!edit) return;
-          const { ri, ci } = edit;
-          const colKey = monthCols[ci]?.key;
-          const val = bEditValRef.current;
-          if (colKey) mutateB(prev => prev.map((r, i) => i === ri ? { ...r, cells: { ...r.cells, [colKey]: val } } : r));
-          bEditRef.current = null;
-          setBEdit(null);
-        };
-
-        const openBEdit = (ri, ci, selectAll = true) => {
-          const colKey = monthCols[ci]?.key;
-          const liveBRows = bRowsRef.current; // always latest committed state
-          const val = String(liveBRows[ri]?.cells?.[colKey] ?? '');
-          bEditRef.current = { ri, ci };
-          bEditValRef.current = val;
-          setBEdit({ ri, ci });
-          setBEditVal(val);
-          setAnchorAndRef({ tag: 'b', rowIdx: ri, colIdx: ci });
-          setFocusSel({ tag: 'b', rowIdx: ri, colIdx: ci });
-          if (selectAll) setTimeout(() => bInputRef.current?.select(), 0);
-          else setTimeout(() => { const el = bInputRef.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0);
-        };
-
-
-        // Bridge: when the shared makeGridKeyDown sets editCell.tag === 'b'
-        // (e.g. user typed a digit or pressed F2 while focused on a bills cell),
-        // proxy that into the bills-specific openBEdit and clear the shared edit
-        // so we don't have two parallel edit states active simultaneously.
-        useEffect(() => {
-          if (editCell?.tag === 'b' && !bEditRef.current) {
-            const { rowIdx, colIdx } = editCell;
-            // Seed the edit with the value that the shared handler captured
-            const seed = editVal;
-            // Clear shared edit immediately so we don't loop
-            setEditCell(null);
-            setEditVal('');
-            // Open the bills edit, then seed the input
-            openBEdit(rowIdx, colIdx, false);
-            // Replace the seeded existing value with the typed character if it was typing
-            if (seed && seed.length === 1 && seed !== ' ') {
-              setTimeout(() => {
-                bEditValRef.current = seed;
-                _setBEditVal(seed);
-              }, 0);
-            }
-          }
-        }, [editCell]);
-
         const bIsAnch = (ri, ci) => anchor?.tag === 'b' && anchor.rowIdx === ri && anchor.colIdx === ci;
         const bInRange = (ri, ci) => selRange?.tag === 'b' && ri >= selRange.r0 && ri <= selRange.r1 && ci >= selRange.c0 && ci <= selRange.c1;
-
-        const moveBEdit = (dr, dc) => {
-          const cur = bEditRef.current ?? bEdit;
-          if (!cur) return;
-          commitBEdit();
-          const liveBRows = bRowsRef.current;
-          const nr = Math.max(0, Math.min(liveBRows.length - 1, cur.ri + dr));
-          const nc = Math.max(0, Math.min(monthCols.length - 1, cur.ci + dc));
-          // Only open a new edit if we actually moved to a different cell
-          if (nr !== cur.ri || nc !== cur.ci) {
-            setTimeout(() => openBEdit(nr, nc), 0);
-          }
-        };
 
         return (
           <div>
@@ -4448,57 +4377,17 @@ if (buildings.length===0) return (
                               {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
                             </select>
                           </td>
-                          {monthCols.map((col, colIdx) => {
-                            const val = row.cells?.[col.key] ?? '';
-                            const sel = bInRange(rowIdx, colIdx);
-                            const anch = bIsAnch(rowIdx, colIdx);
-                            const editing = bEdit?.ri === rowIdx && bEdit?.ci === colIdx;
-                            const num = parseFloat(val);
-                            const isEmpty = val === '' || val == null;
-                            return (
-                              <td key={col.key}
-                                onMouseDown={(e2) => {
-                                  e2.preventDefault();
-                                  if (bEdit) commitBEdit();
-                                  if (e2.shiftKey && anchor?.tag === 'b') {
-                                    setFocusSel({ tag: 'b', rowIdx, colIdx });
-                                  } else {
-                                    setAnchorAndRef({ tag: 'b', rowIdx, colIdx });
-                                    setFocusSel({ tag: 'b', rowIdx, colIdx });
-                                    dragState.current = { tag: 'b', x: e2.clientX, y: e2.clientY, active: false };
-                                  }
-                                  bGridRef.current?.focus({ preventScroll: true });
-                                }}
-                                onMouseEnter={() => {
-                                  const ds = dragState.current;
-                                  if (ds && ds.active && ds.tag === 'b') {
-                                    setFocusSel({ tag: 'b', rowIdx, colIdx });
-                                  }
-                                }}
-                                onDoubleClick={() => openBEdit(rowIdx, colIdx)}
-                                style={{ padding: 0, textAlign: 'right', borderRight: '1px solid ' + T.borderSoft, background: editing ? '#eff6ff' : sel ? '#dbeafe' : '#fffdf5', outline: anch ? '2px solid #1d4ed8' : sel ? '1px solid #93c5fd' : 'none', outlineOffset: '-2px', cursor: 'cell', minWidth: COL_W, userSelect: 'none' }}>
-                                {editing ? (
-                                  <input ref={bInputRef} value={bEditVal}
-                                    autoFocus
-                                    style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.ink, outline: 'none', padding: '8px 6px', boxSizing: 'border-box' }}
-                                    onChange={e2 => { const v = e2.target.value; bEditValRef.current = v; _setBEditVal(v); }}
-                                    onBlur={commitBEdit}
-                                    onKeyDown={(e2) => {
-                                      if (e2.key === 'Enter')     { e2.preventDefault(); moveBEdit(1, 0); return; }
-                                      if (e2.key === 'Tab')       { e2.preventDefault(); moveBEdit(0, e2.shiftKey ? -1 : 1); return; }
-                                      if (e2.key === 'Escape')    { e2.preventDefault(); bEditRef.current = null; setBEdit(null); return; }
-                                      if (e2.key === 'ArrowUp')   { e2.preventDefault(); moveBEdit(-1, 0); return; }
-                                      if (e2.key === 'ArrowDown') { e2.preventDefault(); moveBEdit(1, 0); return; }
-                                    }}
-                                  />
-                                ) : (
-                                  <div style={{ padding: '8px 6px', fontFamily: T.mono, fontSize: 12, minHeight: 36, color: isEmpty ? 'transparent' : T.ink }}>
-                                    {isEmpty ? '·' : sym + Number(val).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                                  </div>
-                                )}
-                              </td>
-                            );
-                          })}
+                          {monthCols.map((col, colIdx) => (
+                            <DataCell key={col.key} tag="b" rowIdx={rowIdx} colIdx={colIdx}
+                              val={row.cells?.[col.key] ?? ''}
+                              editing={editCell?.tag === 'b' && editCell?.rowIdx === rowIdx && editCell?.colIdx === colIdx}
+                              sel={bInRange(rowIdx, colIdx)} anch={bIsAnch(rowIdx, colIdx)}
+                              editVal={editVal} inputRef={inputRef} COL_W={COL_W}
+                              onCellClick={handleCellClick} onCellDblClick={handleCellDblClick}
+                              onCellMouseDown={handleCellMouseDown} onCellMouseEnter={handleCellMouseEnter}
+                              onEditChange={onEditChange} onEditBlur={commitEdit} onEditKeyDown={handleInputKeyDown}
+                            />
+                          ))}
                           <td style={{ padding: '0 4px', textAlign: 'center' }}>
                             {(bRowIssues[rowIdx]?.errors.length > 0 || bRowIssues[rowIdx]?.warnings.length > 0) && (
                               <div title={(bRowIssues[rowIdx]?.errors.concat(bRowIssues[rowIdx]?.warnings) || []).join(' · ')}
@@ -9791,9 +9680,23 @@ function extractHeadings(text) {
 function GuideTab({ activeSection, onSectionChange }) {
   const [activeHeading, setActiveHeading] = useState('');
   const contentRef = useRef(null);
+  const scrollPositions = useRef({}); // { [sectionId]: scrollTop }
   const katexReady = useKatexReady(); // re-render when KaTeX JS finishes loading
   const section = GUIDE_SECTIONS.find(s => s.id === activeSection);
   const headings = section ? extractHeadings(section.content) : [];
+
+  // Save scroll position when leaving a section, restore when entering
+  const prevSectionRef = useRef(activeSection);
+  useEffect(() => {
+    const prev = prevSectionRef.current;
+    if (prev !== activeSection) {
+      // Save the outgoing section's scroll position
+      if (contentRef.current) scrollPositions.current[prev] = contentRef.current.scrollTop;
+      // Restore the incoming section's saved position (or 0)
+      if (contentRef.current) contentRef.current.scrollTop = scrollPositions.current[activeSection] ?? 0;
+      prevSectionRef.current = activeSection;
+    }
+  }, [activeSection]);
 
   const scrollToHeading = (id) => {
     const el = contentRef.current?.querySelector(`[data-heading-id="${id}"]`);
@@ -9925,7 +9828,7 @@ function GuideTab({ activeSection, onSectionChange }) {
             const Icon = s.icon;
             const active = activeSection === s.id;
             return (
-              <button key={s.id} onClick={() => { onSectionChange(s.id); if (contentRef.current) contentRef.current.scrollTop = 0; }}
+              <button key={s.id} onClick={() => onSectionChange(s.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', background: active ? T.successBg : 'transparent', color: active ? T.forest : T.inkSoft, fontFamily: T.body, fontSize: 13, fontWeight: active ? 600 : 400, textAlign: 'left', marginBottom: 2 }}>
                 <Icon size={14} strokeWidth={1.8} />
                 {s.label}
@@ -11100,7 +11003,8 @@ export default function App() {
     return () => { cancelled = true; };
   }, [activeTab]);
   const [buildings, setBuildings, buildingsLoaded, buildingsStorageErr] = useStorage(STORAGE_KEYS.buildings, []);
-  const [sampleMode, setSampleMode] = useStorage(STORAGE_KEYS.sampleMode, false);
+  // Derived — true only while the sample dataset is actually present (no stale flag)
+  const sampleMode = buildings.length > 0 && buildings[0]?.id === 'xaji0y6d';
 
   // Lifted: Energy tab date range
   const now = new Date();
@@ -11167,6 +11071,27 @@ export default function App() {
       setEnergy(energy.filter(r => !r.buildingId || validIds.has(r.buildingId)));
     }
   }, [buildings, buildingsLoaded, energyLoaded]);
+
+  // Migrate buildings stored before hasEfficientHVAC was added to the sample loader.
+  // For sample-data buildings (id present in sample CSV) we re-parse the correct value.
+  // For user-uploaded buildings that are missing the field, default to false (safe: includes
+  // them in smart select, which is better than silently excluding valid candidates).
+  useEffect(() => {
+    if (!buildingsLoaded || buildings.length === 0) return;
+    const needsPatch = buildings.some(b => b.hasEfficientHVAC === undefined);
+    if (!needsPatch) return;
+    // Build a lookup of hasEfficientHVAC from the sample CSV
+    const sampleHvac = {};
+    Papa.parse(SAMPLE_PORTFOLIO_CSV, { header: true, skipEmptyLines: true,
+      complete: ({ data }) => data.forEach(r => {
+        if (r.building_id) sampleHvac[r.building_id] = r.has_efficient_hvac === 'true';
+      })
+    });
+    setBuildings(buildings.map(b => b.hasEfficientHVAC !== undefined ? b : {
+      ...b,
+      hasEfficientHVAC: sampleHvac[b.id] ?? false,
+    }));
+  }, [buildingsLoaded]);
 
   if (!allLoaded) {
     return (
@@ -11273,7 +11198,7 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} onSampleLoad={() => setSampleMode(true)} />}
+      {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} />}
       {activeTab === 'portfolio' && <PortfolioTab buildings={buildings} setBuildings={setBuildings} energy={energy} setEnergy={setEnergy} setBills={setBills} setAssignments={setAssignments} push={push} />}
       {activeTab === 'energy' && <EnergyTab buildings={buildings} energy={energy} setEnergy={setEnergy} bills={bills} setBills={setBills} fuels={fuels} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} push={push} startYear={energyStartYear} setStartYear={setEnergyStartYear} startMonth={energyStartMonth} setStartMonth={setEnergyStartMonth} endYear={energyEndYear} setEndYear={setEnergyEndYear} endMonth={energyEndMonth} setEndMonth={setEnergyEndMonth} onDirtyChange={setEnergyDirty} saveRef={energySaveRef} onNavigate={navigateTo} />}
       {activeTab === 'factors' && <FactorsTab fuels={fuels} setFuels={setFuels} efs={efs} setEfs={setEfs} electricityEfs={electricityEfs} setElectricityEfs={setElectricityEfs} push={push} />}
