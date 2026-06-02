@@ -11311,7 +11311,7 @@ export default function App() {
       </header>
 
       {/* ── Sample data disclaimer banner ────────────────────────────────────── */}
-      {sampleDataLoaded && (
+      {(buildings.length > 0 || energy.length > 0) && (
         <div style={{
           background: T.amberBg, borderBottom: '1px solid ' + T.amberSoft,
           padding: '8px 24px', display: 'flex', alignItems: 'center', gap: 8,
