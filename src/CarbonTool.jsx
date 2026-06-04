@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, startTransition } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Database, Building2, BarChart3, Wrench, BookOpen,
   Globe2, Layers, AlertCircle, Plus, Trash2, Upload,
@@ -2112,7 +2113,7 @@ function BuildingForm({ open, onClose, onSave, building, allBuildings }) {
 // =================================================================
 // Portfolio Tab
 // =================================================================
-const PORTFOLIO_TEMPLATE_XLSX_B64 = "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";
+const PORTFOLIO_TEMPLATE_XLSX_B64 = "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";
 
 function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, setAssignments, push }) {
   const [editing, setEditing] = useState(null);
@@ -2179,14 +2180,47 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
       a.href = url; a.download = 'portfolio_template.xlsx'; a.style.display = 'none';
       document.body.appendChild(a); a.click();
       setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
-      push('Template downloaded — open in Excel, fill in the Portfolio tab, then save as CSV to import', 'success');
+      push('Template downloaded — open in Excel, fill in the Portfolio sheet, then save as CSV to import', 'success');
     } catch {
       push('Template download failed', 'error');
     }
   };
 
-  const [copied, setCopied] = useState(false);
   const exportBuildings = () => {
+    const COLS = [
+      { key: 'building_id',         label: 'Building ID',           width: 18 },
+      { key: 'building_name',       label: 'Building Name',         width: 26 },
+      { key: 'address',             label: 'Address',               width: 32 },
+      { key: 'country_code',        label: 'Country Code',          width: 14 },
+      { key: 'latitude',            label: 'Latitude',              width: 12 },
+      { key: 'longitude',           label: 'Longitude',             width: 12 },
+      { key: 'gia_m2',              label: 'GIA (m²)',              width: 12 },
+      { key: 'asset_class_code',    label: 'Asset Class Code',      width: 18 },
+      { key: 'asset_class_pct',     label: 'Asset Class %',         width: 14 },
+      { key: 'epc_rating',          label: 'EPC Rating',            width: 12 },
+      { key: 'alpha',               label: 'Alpha (0–1)',           width: 12 },
+      { key: 'heating_system',      label: 'Heating System',        width: 20 },
+      { key: 'glazing_type',        label: 'Glazing Type',          width: 18 },
+      { key: 'lighting_type',       label: 'Lighting Type',         width: 18 },
+      { key: 'has_bms',             label: 'Has BMS',               width: 12 },
+      { key: 'has_solar_pv',        label: 'Has Solar PV',          width: 14 },
+      { key: 'has_efficient_hvac',  label: 'Has Efficient HVAC',    width: 18 },
+      { key: 'has_dhw_heat_pump',   label: 'Has DHW Heat Pump',     width: 18 },
+      { key: 'has_roof_insulation', label: 'Has Roof Insulation',   width: 20 },
+      { key: 'has_wall_insulation', label: 'Has Wall Insulation',   width: 20 },
+      { key: 'has_air_sealing',     label: 'Has Air Sealing',       width: 18 },
+      { key: 'solar_pv_m2',         label: 'Solar PV Area (m²)',    width: 18 },
+      { key: 'available_roof_m2',   label: 'Available Roof (m²)',   width: 20 },
+    ];
+
+    const SECTIONS = [
+      { label: 'Identity',                  cols: ['building_id','building_name','address','country_code','latitude','longitude'] },
+      { label: 'Physical Characteristics',  cols: ['gia_m2','asset_class_code','asset_class_pct','epc_rating','alpha'] },
+      { label: 'Building Systems',          cols: ['heating_system','glazing_type','lighting_type'] },
+      { label: 'Retrofit Flags & Areas',    cols: ['has_bms','has_solar_pv','has_efficient_hvac','has_dhw_heat_pump','has_roof_insulation','has_wall_insulation','has_air_sealing','solar_pv_m2','available_roof_m2'] },
+    ];
+    const SECTION_COLORS = { 'Identity': '1E2530', 'Physical Characteristics': '3A7D5C', 'Building Systems': '1D4ED8', 'Retrofit Flags & Areas': '7C3AED' };
+
     const rows = [];
     buildings.forEach(b => {
       (b.assetClasses || [{ code: '', pct: 100 }]).forEach(ac => {
@@ -2194,29 +2228,101 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
           building_id:          b.id,
           building_name:        b.name,
           address:              b.address || '',
-          country_code:         b.country,
+          country_code:         b.country || '',
+          latitude:             b.latitude != null && b.latitude !== '' ? parseFloat(b.latitude) : '',
+          longitude:            b.longitude != null && b.longitude !== '' ? parseFloat(b.longitude) : '',
           gia_m2:               b.gia,
           asset_class_code:     ac.code,
           asset_class_pct:      ac.pct,
           epc_rating:           b.epc || '',
           alpha:                b.alpha,
-          heating_system:       b.heatingSystem      || '',          heating_system:       b.heatingSystem      || '',
+          heating_system:       b.heatingSystem      || '',
           glazing_type:         b.glazingType        || '',
           lighting_type:        b.lightingType       || '',
-          has_bms:              b.hasBMS             ?? false,
-          has_solar_pv:         b.hasSolarPV         ?? false,
-          has_efficient_hvac:   b.hasEfficientHVAC   ?? false,
-          has_dhw_heat_pump:    b.hasDHWHeatPump     ?? false,
-          has_roof_insulation:  b.hasRoofInsulation  ?? false,
-          has_wall_insulation:  b.hasWallInsulation  ?? false,
-          has_air_sealing:      b.hasAirSealing      ?? false,
-          solar_pv_m2:          b.solarPvM2          || 0,
+          has_bms:              String(b.hasBMS             ?? false),
+          has_solar_pv:         String(b.hasSolarPV         ?? false),
+          has_efficient_hvac:   String(b.hasEfficientHVAC   ?? false),
+          has_dhw_heat_pump:    String(b.hasDHWHeatPump     ?? false),
+          has_roof_insulation:  String(b.hasRoofInsulation  ?? false),
+          has_wall_insulation:  String(b.hasWallInsulation  ?? false),
+          has_air_sealing:      String(b.hasAirSealing      ?? false),
+          solar_pv_m2:          b.solarPvM2 || 0,
           available_roof_m2:    b.availableRoofM2 != null && b.availableRoofM2 !== '' ? parseFloat(b.availableRoofM2) : '',
         });
       });
     });
-    directDownload('portfolio_export.csv', rows);
-    push('Portfolio exported', 'success');
+
+    const wb = XLSX.utils.book_new();
+    const wsData = [];
+
+    // Row 1: section banners
+    const bannerRow = COLS.map(c => {
+      const sec = SECTIONS.find(s => s.cols.includes(c.key));
+      // Only show the label for the first col in each section
+      const isFirst = sec && sec.cols[0] === c.key;
+      return isFirst ? sec.label : '';
+    });
+    wsData.push(bannerRow);
+
+    // Row 2: column headers
+    wsData.push(COLS.map(c => c.label));
+
+    // Data rows
+    rows.forEach(r => wsData.push(COLS.map(c => r[c.key] ?? '')));
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Column widths
+    ws['!cols'] = COLS.map(c => ({ wpx: c.width * 7 }));
+
+    // Cell styling via SheetJS — apply to each cell
+    const nCols = COLS.length;
+    const nRows = wsData.length;
+    for (let R = 0; R < nRows; R++) {
+      for (let C = 0; C < nCols; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+        const col = COLS[C];
+        const sec = SECTIONS.find(s => s.cols.includes(col.key));
+        const secColor = sec ? SECTION_COLORS[sec.label] : '1E2530';
+
+        if (R === 0) {
+          // Section banner row
+          ws[addr].s = {
+            fill: { fgColor: { rgb: secColor } },
+            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 9, name: 'Arial' },
+            alignment: { horizontal: 'left', vertical: 'center' },
+          };
+        } else if (R === 1) {
+          // Header row
+          ws[addr].s = {
+            fill: { fgColor: { rgb: '1E2530' } },
+            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10, name: 'Arial' },
+            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+            border: { top: { style: 'thin', color: { rgb: '374151' } }, bottom: { style: 'thin', color: { rgb: '374151' } }, left: { style: 'thin', color: { rgb: '374151' } }, right: { style: 'thin', color: { rgb: '374151' } } },
+          };
+        } else {
+          // Data rows — alternate fill
+          const isAlt = R % 2 === 0;
+          ws[addr].s = {
+            fill: { fgColor: { rgb: isAlt ? 'F3F4F6' : 'FFFFFF' } },
+            font: { sz: 10, name: 'Arial', color: { rgb: '111827' } },
+            alignment: { horizontal: 'left', vertical: 'center' },
+            border: { top: { style: 'thin', color: { rgb: 'E4E7EC' } }, bottom: { style: 'thin', color: { rgb: 'E4E7EC' } }, left: { style: 'thin', color: { rgb: 'E4E7EC' } }, right: { style: 'thin', color: { rgb: 'E4E7EC' } } },
+          };
+        }
+      }
+    }
+
+    // Freeze below header row
+    ws['!freeze'] = { xSplit: 0, ySplit: 2 };
+
+    // Row heights
+    ws['!rows'] = [{ hpx: 20 }, { hpx: 28 }, ...rows.map(() => ({ hpx: 22 }))];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Portfolio');
+    XLSX.writeFile(wb, 'portfolio_export.xlsx', { cellStyles: true });
+    push('Portfolio exported as Excel', 'success');
   };
 
 
@@ -2948,7 +3054,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
 
   // Bills row helpers — defined at EnergyTab scope so they're accessible
   // both from the section heading and from inside the bills IIFE
-  const addBRow    = () => mutateB(prev => [...prev, { id: uid(), buildingId: buildings[0]?.id || '', fuel: fuels.find(f => !f.isElectricity)?.code || '', currency: reportingCurrency, cells: {} }]);
+  const addBRow    = () => mutateB(prev => [...prev, { id: uid(), buildingId: buildings[0]?.id || '', fuel: fuels.find(f => f.isElectricity)?.code || fuels[0]?.code || '', currency: reportingCurrency, cells: {} }]);
   const deleteBRow = (ri) => mutateB(prev => prev.filter((_, i) => i !== ri));
   const updateBMeta = (ri, patch) => mutateB(prev => prev.map((r, i) => i === ri ? { ...r, ...patch } : r));
 
@@ -3909,8 +4015,8 @@ if (buildings.length===0) return (
           <input ref={energyFileInputRef}    type="file" accept=".csv" style={{display:'none'}} onChange={handleEnergyCsvUpload} />
           <input ref={billsFileInputRef}     type="file" accept=".csv" style={{display:'none'}} onChange={handleBillsCsvUpload} />
           <input ref={occupancyFileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleOccupancyCsvUpload} />
+          <Button variant="secondary" icon={Download} size="sm" onClick={() => downloadCsv('energy_template.csv', [{ building_id: 'BUILDING_ID', building_name: 'Building Name (optional)', year: 2024, month: 1, fuel_type: 'electricity', fuel_name: 'Electricity', kwh: 5000 }])}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={()=>energyFileInputRef.current?.click()}>Upload CSV</Button>
-          <Button variant="secondary" icon={Download} size="sm" onClick={() => downloadCsv('energy_template.csv', [{ building_id: 'BUILDING_ID', building_name: 'Building Name (optional)', year: 2024, month: 1, fuel_type: 'electricity', fuel_name: 'Electricity', kwh: 5000 }])}>Template</Button>
           {energy.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyData}>Export data</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addERow}>Add row</Button>
         </div>
@@ -4061,8 +4167,8 @@ if (buildings.length===0) return (
           <span style={{fontFamily:T.body,fontSize:12,color:T.warmGrey,marginLeft:8}}>% of GIA occupied per month</span>
         </div>
         <div style={{display:'flex',gap:8}}>
+          <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => occupancyFileInputRef.current?.click()}>Upload CSV</Button>
-          <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyTemplate}>Template</Button>
           {oRows.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyData}>Export data</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addORow}>Add row</Button>
         </div>
@@ -4228,8 +4334,8 @@ if (buildings.length===0) return (
           <span style={{fontFamily:T.body,fontSize:12,color:T.warmGrey,marginLeft:8}}>actual bills replace inferred costs for matched buildings</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="secondary" icon={Download} size="sm" onClick={exportBillsTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => billsFileInputRef.current?.click()}>Upload CSV</Button>
-          <Button variant="secondary" icon={Download} size="sm" onClick={exportBillsTemplate}>Template</Button>
           <Button variant="secondary" size="sm" icon={Download} onClick={exportBillsData}>Export data</Button>
           <Button variant="primary" icon={Plus} size="sm" onClick={addBRow}>Add row</Button>
         </div>
@@ -4367,8 +4473,8 @@ if (buildings.length===0) return (
                           <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border }}>
                             <select value={row.fuel || ''} onChange={e => updateBMeta(rowIdx, { fuel: e.target.value })}
                               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 12, color: T.ink, outline: 'none', cursor: 'pointer', minWidth: 140 }}>
-                              {fuels.filter(f => !f.isElectricity).map(f => <option key={f.code} value={f.code}>{f.name}</option>)}
                               {fuels.filter(f => f.isElectricity).map(f => <option key={f.code} value={f.code}>{f.name}</option>)}
+                              {fuels.filter(f => !f.isElectricity).map(f => <option key={f.code} value={f.code}>{f.name}</option>)}
                             </select>
                           </td>
                           <td style={{ padding: '4px 6px', borderRight: '2px solid ' + T.border, textAlign: 'center' }}>
@@ -6221,6 +6327,23 @@ const EPC_COLOR = { 'A+++':'#00753a','A++':'#00953a','A+':'#00b33c','A':'#50b849
 // by the host's connect-src CSP. The script load uses script-src, which is often
 // more permissive — proven by Leaflet successfully loading from cdnjs.
 async function nominatimGeocode(address, countryCode) {
+  // UK postcode detection — match formats like N1 0UL, N10UL, SW1A 2AA, EC1A1BB etc.
+  const postcodeMatch = address && address.match(/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b/i);
+  if (postcodeMatch) {
+    const pc = postcodeMatch[1].replace(/\s+/g, '').toUpperCase();
+    try {
+      const res = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(pc)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.result?.latitude && data.result?.longitude) {
+          return { lat: data.result.latitude, lon: data.result.longitude };
+        }
+      }
+    } catch (err) {
+      console.warn('[geocode] postcodes.io failed for', pc, ':', err.message);
+    }
+  }
+
   const fullQuery = [address, countryCode].filter(Boolean).join(', ');
 
   // Use server-side proxy to avoid CORS/CSP issues on Vercel
@@ -6304,6 +6427,26 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
       } catch (_) {}
     })();
   }, []);
+
+  // Invalidate geocache entries whose address or country has changed since they were cached.
+  // Each entry stores an `_fp` fingerprint of "address|country" at geocode time.
+  // When a building is edited and the fingerprint no longer matches, the entry is evicted
+  // so the pin disappears and the building re-enters the geocode queue.
+  useEffect(() => {
+    if (!buildings || buildings.length === 0 || Object.keys(geocache).length === 0) return;
+    const stale = buildings.filter(b => {
+      const entry = geocache[b.id];
+      if (!entry || entry === 'failed') return false; // not cached or already failed — nothing to invalidate
+      const currentFp = (b.address || '') + '|' + (b.country || '');
+      return entry._fp && entry._fp !== currentFp; // only evict if a fingerprint was stored and it changed
+    });
+    if (stale.length === 0) return;
+    setGeocache(prev => {
+      const next = { ...prev };
+      stale.forEach(b => { delete next[b.id]; });
+      return next;
+    });
+  }, [buildings]);
 
   // Persist geocache with debounce — during batch geocoding setGeocache fires
   // once per building resolved, so we batch writes rather than hammering storage.
@@ -6437,7 +6580,8 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
         try {
           const result = await nominatimGeocode(b.address, b.country ? countryName(b.country) : '');
           if (result && result.lat != null && result.lon != null) {
-            newCache[b.id] = { lat: result.lat, lon: result.lon };
+            const fp = (b.address || '') + '|' + (b.country || '');
+            newCache[b.id] = { lat: result.lat, lon: result.lon, _fp: fp };
             setDebugLog(prev => [...prev, { batch: Math.floor(i / CONCURRENCY) + 1, input: addr, raw: JSON.stringify(result), nullCount: 0, ok: true, addresses: [b.address] }]);
           } else {
             newCache[b.id] = 'failed'; failCount++;
@@ -6534,6 +6678,15 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
               style={{ fontFamily: T.body, fontSize: 12, padding: '6px 12px', background: 'none', border: '1px solid ' + T.border, borderRadius: 6, cursor: 'pointer', color: T.warmGrey }}
             >
               Retry {allFailed} failed
+            </button>
+          )}
+          {pinned > 0 && !geocoding && (
+            <button
+              onClick={() => setGeocache({})}
+              title="Clear all geocoded coordinates and re-run geocoding"
+              style={{ fontFamily: T.body, fontSize: 12, padding: '6px 12px', background: 'none', border: '1px solid ' + T.border, borderRadius: 6, cursor: 'pointer', color: T.warmGrey }}
+            >
+              Clear all pins
             </button>
           )}
           <Select
@@ -7088,15 +7241,22 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   const toggleEnergyFuel  = (fc) => startTransition(() => setHiddenEnergyFuels(prev => { const n = new Set(prev); n.has(fc) ? n.delete(fc) : n.add(fc); return n; }));
 
   // Bills by building chart data — annual cost per building at firstDataYear, converted to reporting currency
+  // effectiveBills = stored bills + on-the-fly inferred bills for buildings with no actual bills
+  const effectiveBills = useMemo(() => {
+    if (!bills || !energy || !buildings) return bills || [];
+    const inferred = inferMissingBills(buildings, energy, bills);
+    return [...bills, ...inferred];
+  }, [bills, energy, buildings]);
+
   const billsBldgChartData = useMemo(() => {
-    if (!bills || bills.length === 0 || !filteredBuildings) return [];
+    if (!effectiveBills || effectiveBills.length === 0 || !filteredBuildings) return [];
     const filteredBids = new Set(filteredBuildings.map(b => b.id));
     // Prefer a year that has actual (non-inferred) bills; fall back to firstDataYear
-    const userBillYears = [...new Set(bills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
+    const userBillYears = [...new Set(effectiveBills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
     const billYear = userBillYears.length > 0 ? userBillYears[0] : firstDataYear;
     const toRate = exchangeRates[reportingCurrency] || 1;
     const costByBldg = {};
-    bills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).forEach(b => {
+    effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).forEach(b => {
       const fromRate = exchangeRates[b.currency || reportingCurrency] || 1;
       if (!costByBldg[b.buildingId]) costByBldg[b.buildingId] = { total: 0, inferred: true };
       costByBldg[b.buildingId].total += (b.cost || 0) * (fromRate / toRate);
@@ -7113,17 +7273,18 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
         billYear,
       }))
       .sort((a, b) => b.cost - a.cost);
-  }, [bills, filteredBuildings, firstDataYear, reportingCurrency, exchangeRates]);
+  }, [effectiveBills, filteredBuildings, firstDataYear, reportingCurrency, exchangeRates]);
 
   // Bills by fuel chart data — annual cost per fuel across filtered portfolio
   const billsFuelChartData = useMemo(() => {
-    if (!bills || bills.length === 0 || !filteredBuildings) return [];
+    if (!effectiveBills || effectiveBills.length === 0 || !filteredBuildings) return [];
     const filteredBids = new Set(filteredBuildings.map(b => b.id));
-    const userBillYears = [...new Set(bills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
+    const userBillYears = [...new Set(effectiveBills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
     const billYear = userBillYears.length > 0 ? userBillYears[0] : firstDataYear;
     const toRate = exchangeRates[reportingCurrency] || 1;
     const costByFuel = {};
-    bills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).forEach(b => {
+    const allInferred = effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).every(b => b.inferred);
+    effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).forEach(b => {
       const fromRate = exchangeRates[b.currency || reportingCurrency] || 1;
       const fc = b.fuel || 'unknown';
       if (!costByFuel[fc]) costByFuel[fc] = 0;
@@ -7135,9 +7296,10 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
         name: fuels.find(f => f.code === fc)?.name || fc,
         cost: +cost.toFixed(0),
         color: FUEL_COLORS[fc] || T.warmGrey,
+        inferred: allInferred,
       }))
       .sort((a, b) => b.cost - a.cost);
-  }, [bills, filteredBuildings, firstDataYear, reportingCurrency, exchangeRates, fuels]);
+  }, [effectiveBills, filteredBuildings, firstDataYear, reportingCurrency, exchangeRates, fuels]);
   // Toggle states for per-m² building charts
   const [emissionsPerM2, setEmissionsPerM2] = useState(false);
   const [energyPerM2, setEnergyPerM2] = useState(false);
@@ -7193,8 +7355,51 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   const [composeOpen, setComposeOpen]   = useState(false);
   const [editingViewName, setEditingViewName] = useState(null); // index being renamed
   const [draftName, setDraftName]       = useState('');
-  const [dragSrc, setDragSrc]           = useState(null);   // panel id being dragged
-  const [dragOver, setDragOver]         = useState(null);   // panel id hovered
+  // Drag-and-drop reorder
+  // dragSrcRef / dragOverRef are the source of truth — updated synchronously.
+  // dragTick is a counter that only increments when the *visible* drag state changes
+  // (start, new hover target, end) — NOT on every dragover event.
+  // This means DashboardTab re-renders ~3 times per drag gesture instead of
+  // hundreds of times, eliminating the lag on the composer and chart cards.
+  const dragSrcRef  = useRef(null);
+  const dragOverRef = useRef(null);
+  const [dragTick, setDragTick] = useState(0);
+  const bumpDrag = () => setDragTick(t => t + 1);
+  // Convenience reads — always in sync because bumpDrag gates re-renders
+  const dragSrc  = dragSrcRef.current;
+  const dragOver = dragOverRef.current;
+
+  const handleDragStart = (id) => {
+    dragSrcRef.current = id;
+    dragOverRef.current = null;
+    bumpDrag();
+  };
+  const handleDragOver = (e, id) => {
+    e.preventDefault();
+    if (dragOverRef.current !== id) {
+      dragOverRef.current = id;
+      bumpDrag(); // only re-render when hover target actually changes
+    }
+  };
+  const clearDrag = () => {
+    dragSrcRef.current = null;
+    dragOverRef.current = null;
+    bumpDrag();
+  };
+  const handleDrop = (targetId) => {
+    const src = dragSrcRef.current;
+    if (!src || src === targetId) { clearDrag(); return; }
+    updateView(activeViewIdx, v => {
+      const panels = [...(v.panels || PANEL_REGISTRY.map(p => ({ id: p.id, visible: p.defaultVisible, span: p.defaultSpan })))];
+      const srcIdx = panels.findIndex(p => p.id === src);
+      const tgtIdx = panels.findIndex(p => p.id === targetId);
+      if (srcIdx === -1 || tgtIdx === -1) return v;
+      const [removed] = panels.splice(srcIdx, 1);
+      panels.splice(tgtIdx, 0, removed);
+      return { panels };
+    });
+    clearDrag();
+  };
 
   const activeView = views[activeViewIdx] || views[0];
   // For rendering charts: use deferred view so the composer toggle UI doesn't block on
@@ -7246,38 +7451,6 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
       })));
     });
   }, [activeViewIdx]);
-
-  // Drag-and-drop reorder
-  // dragSrcRef is set synchronously so handleDrop always has the correct source id
-  // even if the React state update (setDragSrc) hasn't re-rendered yet.
-  const dragSrcRef = useRef(null);
-  const handleDragStart = (id) => { dragSrcRef.current = id; setDragSrc(id); };
-  const dragOverRef = useRef(null); // throttle dragOver setState
-  const handleDragOver  = (e, id) => {
-    e.preventDefault();
-    if (dragOverRef.current !== id) {
-      dragOverRef.current = id;
-      setDragOver(id);
-    }
-  };
-  const clearDrag = () => {
-    setDragSrc(null); setDragOver(null);
-    dragSrcRef.current = null; dragOverRef.current = null;
-  };
-  const handleDrop      = (targetId) => {
-    const src = dragSrcRef.current || dragSrc; // prefer ref — stale-proof
-    if (!src || src === targetId) { clearDrag(); return; }
-    updateView(activeViewIdx, v => {
-      const panels = [...(v.panels || PANEL_REGISTRY.map(p => ({ id: p.id, visible: p.defaultVisible, span: p.defaultSpan })))];
-      const srcIdx = panels.findIndex(p => p.id === src);
-      const tgtIdx = panels.findIndex(p => p.id === targetId);
-      if (srcIdx === -1 || tgtIdx === -1) return v;
-      const [removed] = panels.splice(srcIdx, 1);
-      panels.splice(tgtIdx, 0, removed);
-      return { panels };
-    });
-    clearDrag();
-  };
 
   const addView = () => {
     const newView = {
@@ -7404,12 +7577,11 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   // Annual utility cost: bills only exist for metered periods.
   // When refYear > firstDataYear, fall back to firstDataYear bills and flag as historical.
   const annualCostSummary = useMemo(() => {
-    if (!bills || bills.length === 0) return null;
+    if (!effectiveBills || effectiveBills.length === 0) return null;
     const filteredBids = new Set(filteredBuildings.map(b => b.id));
-    // Use the earliest year that has actual (non-inferred) bills; fall back to firstDataYear
-    const userBillYears = [...new Set(bills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
+    const userBillYears = [...new Set(effectiveBills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
     const billYear = userBillYears.length > 0 ? userBillYears[0] : firstDataYear;
-    let yearBills = bills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0);
+    let yearBills = effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0);
     const isFallback = refYear !== firstDataYear; // cost is always base-year derived
     if (yearBills.length === 0) return null;
     const anyInferred = yearBills.every(b => b.inferred); // true only when NO actual bills uploaded
@@ -7462,7 +7634,7 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
       isFallback,
       isRetroScaled: useRetro,
     };
-  }, [bills, filteredBuildings, refYear, firstDataYear, reportingCurrency, exchangeRates, showRetrofit, portfolioHasRetrofits, buildingResults]);
+  }, [effectiveBills, filteredBuildings, refYear, firstDataYear, reportingCurrency, exchangeRates, showRetrofit, portfolioHasRetrofits, buildingResults]);
   const deltaCost = showDelta && annualCostSummary?.isRetroScaled
     ? deltaPct(annualCostSummary.total, annualCostSummary.bauTotal) : null;
 
@@ -7662,7 +7834,7 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
                     padding: '10px 14px', borderRadius: 8,
                     background: isDragTgt ? '#f0faf4' : dragSrc === panelId ? '#fefce8' : '#fff',
                     border: '1px solid ' + (isDragTgt ? T.forest : dragSrc === panelId ? T.amber : T.border),
-                    cursor: 'grab', transition: 'all 0.12s', opacity: dragSrc === panelId ? 0.6 : 1,
+                    cursor: 'grab', opacity: dragSrc === panelId ? 0.6 : 1,
                   }}
                 >
                   {/* Drag handle */}
@@ -8260,8 +8432,9 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
           {(() => {
             const sym = { GBP: '£', EUR: '€', USD: '$', AUD: 'A$', CHF: 'Fr', NOK: 'kr', SEK: 'kr', DKK: 'kr', PLN: 'zł', CZK: 'Kč', HUF: 'Ft', JPY: '¥' }[reportingCurrency] || reportingCurrency + ' ';
             const fmtVal = v => v >= 1e6 ? sym + (v/1e6).toFixed(1) + 'M' : v >= 1e3 ? sym + (v/1e3).toFixed(0) + 'k' : sym + Math.round(v).toLocaleString();
+            const allInferred = billsFuelChartData.length > 0 && billsFuelChartData.every(d => d.inferred);
             return (
-              <ChartCard panelId="bills_fuel" title="Energy bills by fuel" subtitle={'Annual cost at ' + firstDataYear + ' · ' + reportingCurrency + ' · sorted highest to lowest'}
+              <ChartCard panelId="bills_fuel" title="Energy bills by fuel" subtitle={'Annual cost at ' + firstDataYear + ' · ' + reportingCurrency + (allInferred ? ' · estimated from tariffs' : '') + ' · sorted highest to lowest'}
                 legend={billsFuelChartData.length > 0 ? <span style={{ fontFamily: T.mono, fontSize: 10, color: T.warmGreyLight }}>{billsFuelChartData.length} fuel{billsFuelChartData.length !== 1 ? 's' : ''}</span> : null}>
                 {billsFuelChartData.length === 0 ? (
                   <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.warmGrey, fontFamily: T.body, fontSize: 13 }}>No bills data</div>
@@ -8273,10 +8446,10 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
                         <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                           tickFormatter={v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v} />
                         <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                        <Tooltip formatter={(v, n, p) => [fmtVal(v), p.payload?.name]} contentStyle={ttStyle} />
+                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (est.)' : ''), p.payload?.name]} contentStyle={ttStyle} />
                         <Bar dataKey="cost" name="Cost" radius={[0, 3, 3, 0]}>
                           {billsFuelChartData.map((entry, i) => (
-                            <Cell key={i} fill={entry.color} />
+                            <Cell key={i} fill={entry.color} opacity={entry.inferred ? 0.45 : 1} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -8293,7 +8466,7 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
             const fmtVal = v => v >= 1e6 ? sym + (v/1e6).toFixed(1) + 'M' : v >= 1e3 ? sym + (v/1e3).toFixed(0) + 'k' : sym + Math.round(v).toLocaleString();
             const anyInferred = billsBldgChartData.some(d => d.inferred);
             return (
-              <ChartCard panelId="bills_bldg" title="Energy bills by building" subtitle={'Annual cost at ' + (billsBldgChartData[0]?.billYear ?? firstDataYear) + ' · ' + reportingCurrency + (anyInferred ? ' · some costs are estimated' : '') + ' · sorted highest to lowest'}
+              <ChartCard panelId="bills_bldg" title="Energy bills by building" subtitle={'Annual cost at ' + (billsBldgChartData[0]?.billYear ?? firstDataYear) + ' · ' + reportingCurrency + (anyInferred ? (billsBldgChartData.every(d => d.inferred) ? ' · estimated from tariffs' : ' · some costs estimated') : '') + ' · sorted highest to lowest'}
                 legend={billsBldgChartData.length > 0 ? <span style={{ fontFamily: T.mono, fontSize: 10, color: T.warmGreyLight }}>{billsBldgChartData.length} bldgs</span> : null}>
                 {billsBldgChartData.length === 0 ? (
                   <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.warmGrey, fontFamily: T.body, fontSize: 13 }}>No bills data</div>
@@ -9679,33 +9852,21 @@ function extractHeadings(text) {
 
 function GuideTab({ activeSection, onSectionChange }) {
   const [activeHeading, setActiveHeading] = useState('');
-  const contentRef = useRef(null);
-  const scrollPositions = useRef({}); // { [sectionId]: scrollTop }
-  const katexReady = useKatexReady(); // re-render when KaTeX JS finishes loading
-  const section = GUIDE_SECTIONS.find(s => s.id === activeSection);
-  const headings = section ? extractHeadings(section.content) : [];
-
-  // Save scroll position when leaving a section, restore when entering
-  const prevSectionRef = useRef(activeSection);
-  useEffect(() => {
-    const prev = prevSectionRef.current;
-    if (prev !== activeSection) {
-      // Save the outgoing section's scroll position
-      if (contentRef.current) scrollPositions.current[prev] = contentRef.current.scrollTop;
-      // Restore the incoming section's saved position (or 0)
-      if (contentRef.current) contentRef.current.scrollTop = scrollPositions.current[activeSection] ?? 0;
-      prevSectionRef.current = activeSection;
-    }
-  }, [activeSection]);
+  // One ref per section — each keeps its own independent scroll position
+  const contentRefs = useRef({ guide: null, methodology: null });
+  const katexReady = useKatexReady();
 
   const scrollToHeading = (id) => {
-    const el = contentRef.current?.querySelector(`[data-heading-id="${id}"]`);
+    const el = contentRefs.current[activeSection]?.querySelector(`[data-heading-id="${id}"]`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // Inject heading anchors into rendered content
-  const renderedWithAnchors = useMemo(() => {
+  const renderSection = (sectionId) => {
+    const section = GUIDE_SECTIONS.find(s => s.id === sectionId);
     if (!section) return null;
+    const headings = extractHeadings(section.content);
+    const isActive = activeSection === sectionId;
+
     const lines = section.content.split('\n');
     const counters = {};
     const linesWithIds = lines.map(line => {
@@ -9739,10 +9900,7 @@ function GuideTab({ activeSection, onSectionChange }) {
     let i = 0;
     while (i < linesWithIds.length) {
       const raw = linesWithIds[i];
-
       if (!raw.trim()) { i++; continue; }
-
-      // Heading with anchor
       if (raw.startsWith('__HEADING_ANCHOR:')) {
         const [, anchorId, ...rest] = raw.split(':');
         const line = rest.join(':');
@@ -9754,7 +9912,6 @@ function GuideTab({ activeSection, onSectionChange }) {
         else if (h1) elements.push(<h1 key={key()} data-heading-id={anchorId} style={{ fontFamily: T.body, fontSize: 20, fontWeight: 700, color: T.ink, margin: '0 0 16px', lineHeight: 1.2, scrollMarginTop: 16 }}>{inlineRender(h1[1])}</h1>);
         i++; continue;
       }
-
       if (raw.startsWith('```')) {
         const codeLines = [];
         i++;
@@ -9763,7 +9920,6 @@ function GuideTab({ activeSection, onSectionChange }) {
         elements.push(<pre key={key()} style={{ background: T.paper, border: '1px solid ' + T.border, borderRadius: 6, padding: '12px 14px', overflowX: 'auto', fontFamily: T.mono, fontSize: 12, color: T.ink, lineHeight: 1.6, margin: '12px 0' }}>{codeLines.join('\n')}</pre>);
         continue;
       }
-
       if (raw.trim().startsWith('|')) {
         const tableLines = [];
         while (i < linesWithIds.length && linesWithIds[i].trim().startsWith('|')) { tableLines.push(linesWithIds[i]); i++; }
@@ -9782,14 +9938,12 @@ function GuideTab({ activeSection, onSectionChange }) {
         );
         continue;
       }
-
       if (raw.startsWith('>')) {
         const bqLines = [];
         while (i < linesWithIds.length && linesWithIds[i].startsWith('>')) { bqLines.push(linesWithIds[i].replace(/^>\s?/, '')); i++; }
         elements.push(<blockquote key={key()} style={{ borderLeft: '3px solid ' + T.forest, margin: '14px 0', padding: '10px 16px', background: T.successBg, borderRadius: '0 6px 6px 0' }}><p style={{ fontFamily: T.body, fontSize: 13, color: T.inkSoft, margin: 0, lineHeight: 1.6 }}>{inlineRender(bqLines.join(' '))}</p></blockquote>);
         continue;
       }
-
       const ulMatch2 = raw.match(/^(\s*)[-*] (.+)/);
       const olMatch2 = raw.match(/^\d+\. (.+)/);
       if (ulMatch2 || olMatch2) {
@@ -9805,7 +9959,6 @@ function GuideTab({ activeSection, onSectionChange }) {
         elements.push(<Tag2 key={key()} style={{ fontFamily: T.body, fontSize: 13, color: T.inkSoft, lineHeight: 1.7, paddingLeft: 22, margin: '8px 0' }}>{items.map((it, ii) => <li key={ii} style={{ marginBottom: 3 }}>{inlineRender(it)}</li>)}</Tag2>);
         continue;
       }
-
       const paraLines = [];
       while (i < linesWithIds.length && linesWithIds[i].trim() && !linesWithIds[i].startsWith('#') && !linesWithIds[i].startsWith('__HEADING') && !linesWithIds[i].trim().startsWith('|') && !linesWithIds[i].startsWith('>') && !linesWithIds[i].startsWith('```') && !/^(\s*)[-*] /.test(linesWithIds[i]) && !/^\d+\. /.test(linesWithIds[i])) {
         paraLines.push(linesWithIds[i]);
@@ -9815,14 +9968,39 @@ function GuideTab({ activeSection, onSectionChange }) {
         elements.push(<p key={key()} style={{ fontFamily: T.body, fontSize: 13, color: T.inkSoft, lineHeight: 1.7, margin: '8px 0' }}>{inlineRender(paraLines.join(' '))}</p>);
       }
     }
-    return elements;
-  }, [section, katexReady]);
+
+    const desc = sectionId === 'guide'
+      ? 'How to use CarbonTool — step-by-step workflows, keyboard shortcuts, and FAQ.'
+      : 'How calculations work — formulas, assumptions, data sources, and CRREM attribution.';
+
+    return (
+      <div
+        key={sectionId}
+        ref={el => { contentRefs.current[sectionId] = el; }}
+        style={{ display: isActive ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflowY: 'auto', padding: '40px 56px 80px', maxWidth: 860 }}
+      >
+        <div style={{ marginBottom: 32, paddingBottom: 20, borderBottom: '1px solid ' + T.border }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            {(() => { const Icon = section?.icon; return Icon ? <Icon size={20} color={T.forest} strokeWidth={1.8} /> : null; })()}
+            <h1 style={{ fontFamily: T.body, fontSize: 22, fontWeight: 700, color: T.ink, margin: 0 }}>{section?.label}</h1>
+          </div>
+          <p style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, margin: 0, lineHeight: 1.5 }}>{desc}</p>
+        </div>
+        <div>{elements}</div>
+        <div style={{ marginTop: 48, paddingTop: 20, borderTop: '1px solid ' + T.border, fontFamily: T.body, fontSize: 11, color: T.warmGreyLight, lineHeight: 1.6 }}>
+          Pathway and grid emission factor data from the Carbon Risk Real Estate Monitor (CRREM), V2.04 (28 August 2025). <a href="https://www.crrem.org" target="_blank" rel="noopener noreferrer" style={{ color: T.forest }}>www.crrem.org</a>
+        </div>
+      </div>
+    );
+  };
+
+  const activeSection_ = GUIDE_SECTIONS.find(s => s.id === activeSection);
+  const headings = activeSection_ ? extractHeadings(activeSection_.content) : [];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: T.cream }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 56px)', background: T.cream, overflow: 'hidden' }}>
       {/* Left sidebar — section switcher + TOC */}
-      <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid ' + T.border, background: '#fff', position: 'sticky', top: 56, height: 'calc(100vh - 56px)', overflowY: 'auto', padding: '24px 0' }}>
-        {/* Section tabs */}
+      <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid ' + T.border, background: '#fff', height: '100%', overflowY: 'auto', padding: '24px 0' }}>
         <div style={{ padding: '0 16px 16px', borderBottom: '1px solid ' + T.borderSoft, marginBottom: 16 }}>
           {GUIDE_SECTIONS.map(s => {
             const Icon = s.icon;
@@ -9836,39 +10014,19 @@ function GuideTab({ activeSection, onSectionChange }) {
             );
           })}
         </div>
-        {/* TOC */}
         <div style={{ padding: '0 16px' }}>
           <div style={{ fontFamily: T.mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: T.warmGreyLight, marginBottom: 8 }}>Contents</div>
           {headings.map((h, i) => (
             <button key={i} onClick={() => scrollToHeading(h.id)}
-              style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', padding: `4px 0 4px ${(h.level - 1) * 10}px`, fontFamily: T.body, fontSize: 11, color: T.warmGrey, lineHeight: 1.4, ':hover': { color: T.forest } }}>
+              style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', padding: `4px 0 4px ${(h.level - 1) * 10}px`, fontFamily: T.body, fontSize: 11, color: T.warmGrey, lineHeight: 1.4 }}>
               {h.text}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Main content */}
-      <div ref={contentRef} style={{ flex: 1, overflowY: 'auto', padding: '40px 56px 80px', maxWidth: 860 }}>
-        {/* Section header */}
-        <div style={{ marginBottom: 32, paddingBottom: 20, borderBottom: '1px solid ' + T.border }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            {(() => { const Icon = section?.icon; return Icon ? <Icon size={20} color={T.forest} strokeWidth={1.8} /> : null; })()}
-            <h1 style={{ fontFamily: T.body, fontSize: 22, fontWeight: 700, color: T.ink, margin: 0 }}>{section?.label}</h1>
-          </div>
-          <p style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, margin: 0, lineHeight: 1.5 }}>
-            {activeSection === 'guide' ? 'How to use CarbonTool — step-by-step workflows, keyboard shortcuts, and FAQ.' : 'How calculations work — formulas, assumptions, data sources, and CRREM attribution.'}
-          </p>
-        </div>
-
-        {/* Rendered content */}
-        <div>{renderedWithAnchors}</div>
-
-        {/* Footer attribution */}
-        <div style={{ marginTop: 48, paddingTop: 20, borderTop: '1px solid ' + T.border, fontFamily: T.body, fontSize: 11, color: T.warmGreyLight, lineHeight: 1.6 }}>
-          Pathway and grid emission factor data from the Carbon Risk Real Estate Monitor (CRREM), V2.04 (28 August 2025). <a href="https://www.crrem.org" target="_blank" rel="noopener noreferrer" style={{ color: T.forest }}>www.crrem.org</a>
-        </div>
-      </div>
+      {/* Both section content areas always mounted — display:none hides the inactive one */}
+      {GUIDE_SECTIONS.map(s => renderSection(s.id))}
     </div>
   );
 }
@@ -11204,7 +11362,7 @@ export default function App() {
       {activeTab === 'factors' && <FactorsTab fuels={fuels} setFuels={setFuels} efs={efs} setEfs={setEfs} electricityEfs={electricityEfs} setElectricityEfs={setElectricityEfs} push={push} />}
       <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}><DashboardTab buildings={buildings} energy={energy} bills={bills} fuels={fuels} efs={efs} retrofits={retrofits} assignments={assignments} baseYear={baseYear} setBaseYear={setBaseYear} baseMonth={baseMonth} setBaseMonth={setBaseMonth} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} allLoaded={allLoaded} onNavigate={navigateTo} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} /></div>
       {activeTab === 'retrofits' && <RetrofitsTab buildings={buildings} energy={energy} fuels={fuels} efs={efs} retrofits={retrofits} setRetrofits={setRetrofits} assignments={assignments} setAssignments={setAssignments} baseYear={baseYear} baseMonth={baseMonth} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} onNavigate={navigateTo} />}
-      {activeTab === 'guide' && <GuideTab activeSection={guideSection} onSectionChange={setGuideSection} />}
+      <div style={{ display: activeTab === 'guide' ? 'block' : 'none' }}><GuideTab activeSection={guideSection} onSectionChange={setGuideSection} /></div>
 
       <footer style={{
         marginTop: 48, padding: '24px 48px', borderTop: '1px solid ' + T.border,
