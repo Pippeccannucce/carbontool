@@ -2113,7 +2113,7 @@ function BuildingForm({ open, onClose, onSave, building, allBuildings }) {
 // =================================================================
 // Portfolio Tab
 // =================================================================
-const PORTFOLIO_TEMPLATE_XLSX_B64 = "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";
+const PORTFOLIO_TEMPLATE_XLSX_B64 = "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";
 
 function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, setAssignments, push }) {
   const [editing, setEditing] = useState(null);
@@ -2188,38 +2188,39 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
 
   const exportBuildings = () => {
     const COLS = [
-      { key: 'building_id',         label: 'Building ID',           width: 18 },
-      { key: 'building_name',       label: 'Building Name',         width: 26 },
-      { key: 'address',             label: 'Address',               width: 32 },
-      { key: 'country_code',        label: 'Country Code',          width: 14 },
-      { key: 'latitude',            label: 'Latitude',              width: 12 },
-      { key: 'longitude',           label: 'Longitude',             width: 12 },
-      { key: 'gia_m2',              label: 'GIA (m²)',              width: 12 },
-      { key: 'asset_class_code',    label: 'Asset Class Code',      width: 18 },
-      { key: 'asset_class_pct',     label: 'Asset Class %',         width: 14 },
-      { key: 'epc_rating',          label: 'EPC Rating',            width: 12 },
-      { key: 'alpha',               label: 'Alpha (0–1)',           width: 12 },
-      { key: 'heating_system',      label: 'Heating System',        width: 20 },
-      { key: 'glazing_type',        label: 'Glazing Type',          width: 18 },
-      { key: 'lighting_type',       label: 'Lighting Type',         width: 18 },
-      { key: 'has_bms',             label: 'Has BMS',               width: 12 },
-      { key: 'has_solar_pv',        label: 'Has Solar PV',          width: 14 },
-      { key: 'has_efficient_hvac',  label: 'Has Efficient HVAC',    width: 18 },
-      { key: 'has_dhw_heat_pump',   label: 'Has DHW Heat Pump',     width: 18 },
-      { key: 'has_roof_insulation', label: 'Has Roof Insulation',   width: 20 },
-      { key: 'has_wall_insulation', label: 'Has Wall Insulation',   width: 20 },
-      { key: 'has_air_sealing',     label: 'Has Air Sealing',       width: 18 },
-      { key: 'solar_pv_m2',         label: 'Solar PV Area (m²)',    width: 18 },
-      { key: 'available_roof_m2',   label: 'Available Roof (m²)',   width: 20 },
+      { key: 'building_id',         label: 'Building ID',          section: 'Identity',                width: 18 },
+      { key: 'building_name',       label: 'Building Name',        section: 'Identity',                width: 26 },
+      { key: 'address',             label: 'Address',              section: 'Identity',                width: 32 },
+      { key: 'country_code',        label: 'Country Code',         section: 'Identity',                width: 14 },
+      { key: 'latitude',            label: 'Latitude',             section: 'Identity',                width: 12 },
+      { key: 'longitude',           label: 'Longitude',            section: 'Identity',                width: 12 },
+      { key: 'gia_m2',              label: 'GIA (m\u00b2)',        section: 'Physical Characteristics', width: 12 },
+      { key: 'asset_class_code',    label: 'Asset Class Code',     section: 'Physical Characteristics', width: 18 },
+      { key: 'asset_class_pct',     label: 'Asset Class %',        section: 'Physical Characteristics', width: 14 },
+      { key: 'epc_rating',          label: 'EPC Rating',           section: 'Physical Characteristics', width: 12 },
+      { key: 'alpha',               label: 'Alpha (0\u20131)',     section: 'Physical Characteristics', width: 12 },
+      { key: 'heating_system',      label: 'Heating System',       section: 'Building Systems',         width: 22 },
+      { key: 'glazing_type',        label: 'Glazing Type',         section: 'Building Systems',         width: 18 },
+      { key: 'lighting_type',       label: 'Lighting Type',        section: 'Building Systems',         width: 18 },
+      { key: 'has_bms',             label: 'Has BMS',              section: 'Retrofit Flags & Areas',   width: 12 },
+      { key: 'has_solar_pv',        label: 'Has Solar PV',         section: 'Retrofit Flags & Areas',   width: 14 },
+      { key: 'has_efficient_hvac',  label: 'Has Efficient HVAC',   section: 'Retrofit Flags & Areas',   width: 20 },
+      { key: 'has_dhw_heat_pump',   label: 'Has DHW Heat Pump',    section: 'Retrofit Flags & Areas',   width: 18 },
+      { key: 'has_roof_insulation', label: 'Has Roof Insulation',  section: 'Retrofit Flags & Areas',   width: 20 },
+      { key: 'has_wall_insulation', label: 'Has Wall Insulation',  section: 'Retrofit Flags & Areas',   width: 20 },
+      { key: 'has_air_sealing',     label: 'Has Air Sealing',      section: 'Retrofit Flags & Areas',   width: 18 },
+      { key: 'solar_pv_m2',         label: 'Solar PV Area (m\u00b2)', section: 'Retrofit Flags & Areas', width: 18 },
+      { key: 'available_roof_m2',   label: 'Available Roof (m\u00b2)', section: 'Retrofit Flags & Areas', width: 20 },
     ];
-
-    const SECTIONS = [
-      { label: 'Identity',                  cols: ['building_id','building_name','address','country_code','latitude','longitude'] },
-      { label: 'Physical Characteristics',  cols: ['gia_m2','asset_class_code','asset_class_pct','epc_rating','alpha'] },
-      { label: 'Building Systems',          cols: ['heating_system','glazing_type','lighting_type'] },
-      { label: 'Retrofit Flags & Areas',    cols: ['has_bms','has_solar_pv','has_efficient_hvac','has_dhw_heat_pump','has_roof_insulation','has_wall_insulation','has_air_sealing','solar_pv_m2','available_roof_m2'] },
-    ];
-    const SECTION_COLORS = { 'Identity': '1E2530', 'Physical Characteristics': '3A7D5C', 'Building Systems': '1D4ED8', 'Retrofit Flags & Areas': '7C3AED' };
+    const SECTION_COLORS = {
+      'Identity':               '1E2530',
+      'Physical Characteristics':'3A7D5C',
+      'Building Systems':       '1D4ED8',
+      'Retrofit Flags & Areas': '7C3AED',
+    };
+    const mkBorder = (c='E4E7EC') => ({ top:{style:'thin',color:{rgb:c}}, bottom:{style:'thin',color:{rgb:c}}, left:{style:'thin',color:{rgb:c}}, right:{style:'thin',color:{rgb:c}} });
+    const mkFont = (bold=false, color='111827', sz=10) => ({ name:'Arial', bold, color:{rgb:color}, sz });
+    const mkFill = (rgb) => ({ patternType:'solid', fgColor:{rgb}, bgColor:{rgb} });
 
     const rows = [];
     buildings.forEach(b => {
@@ -2252,81 +2253,40 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
       });
     });
 
+    const bannerRow = COLS.map((c, ci) => (ci === 0 || COLS[ci-1].section !== c.section) ? c.section : '');
+    const headerRow = COLS.map(c => c.label);
+    const dataRows  = rows.map(r => COLS.map(c => r[c.key] ?? ''));
+
     const wb = XLSX.utils.book_new();
-    const wsData = [];
+    const ws = XLSX.utils.aoa_to_sheet([bannerRow, headerRow, ...dataRows]);
 
-    // Row 1: section banners
-    const bannerRow = COLS.map(c => {
-      const sec = SECTIONS.find(s => s.cols.includes(c.key));
-      // Only show the label for the first col in each section
-      const isFirst = sec && sec.cols[0] === c.key;
-      return isFirst ? sec.label : '';
-    });
-    wsData.push(bannerRow);
+    ws['!cols'] = COLS.map(c => ({ wch: c.width }));
+    ws['!rows'] = [{ hpt: 14 }, { hpt: 20 }, ...rows.map(() => ({ hpt: 16 }))];
+    ws['!freeze'] = { xSplit: 0, ySplit: 2 };
 
-    // Row 2: column headers
-    wsData.push(COLS.map(c => c.label));
-
-    // Data rows
-    rows.forEach(r => wsData.push(COLS.map(c => r[c.key] ?? '')));
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    // Column widths
-    ws['!cols'] = COLS.map(c => ({ wpx: c.width * 7 }));
-
-    // Cell styling via SheetJS — apply to each cell
-    const nCols = COLS.length;
-    const nRows = wsData.length;
+    const nRows = 2 + rows.length;
     for (let R = 0; R < nRows; R++) {
-      for (let C = 0; C < nCols; C++) {
+      for (let C = 0; C < COLS.length; C++) {
         const addr = XLSX.utils.encode_cell({ r: R, c: C });
         if (!ws[addr]) ws[addr] = { v: '', t: 's' };
         const col = COLS[C];
-        const sec = SECTIONS.find(s => s.cols.includes(col.key));
-        const secColor = sec ? SECTION_COLORS[sec.label] : '1E2530';
-
+        const secColor = SECTION_COLORS[col.section] || '1E2530';
         if (R === 0) {
-          // Section banner row
-          ws[addr].s = {
-            fill: { fgColor: { rgb: secColor } },
-            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 9, name: 'Arial' },
-            alignment: { horizontal: 'left', vertical: 'center' },
-          };
+          ws[addr].s = { fill: mkFill(secColor), font: mkFont(true,'FFFFFF',9), alignment: { horizontal:'left', vertical:'center' } };
         } else if (R === 1) {
-          // Header row
-          ws[addr].s = {
-            fill: { fgColor: { rgb: '1E2530' } },
-            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10, name: 'Arial' },
-            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-            border: { top: { style: 'thin', color: { rgb: '374151' } }, bottom: { style: 'thin', color: { rgb: '374151' } }, left: { style: 'thin', color: { rgb: '374151' } }, right: { style: 'thin', color: { rgb: '374151' } } },
-          };
+          ws[addr].s = { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center', vertical:'center', wrapText:true }, border: mkBorder('374151') };
         } else {
-          // Data rows — alternate fill
-          const isAlt = R % 2 === 0;
-          ws[addr].s = {
-            fill: { fgColor: { rgb: isAlt ? 'F3F4F6' : 'FFFFFF' } },
-            font: { sz: 10, name: 'Arial', color: { rgb: '111827' } },
-            alignment: { horizontal: 'left', vertical: 'center' },
-            border: { top: { style: 'thin', color: { rgb: 'E4E7EC' } }, bottom: { style: 'thin', color: { rgb: 'E4E7EC' } }, left: { style: 'thin', color: { rgb: 'E4E7EC' } }, right: { style: 'thin', color: { rgb: 'E4E7EC' } } },
-          };
+          ws[addr].s = { fill: mkFill(R%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left', vertical:'center' }, border: mkBorder() };
         }
       }
     }
 
-    // Freeze below header row
-    ws['!freeze'] = { xSplit: 0, ySplit: 2 };
-
-    // Row heights
-    ws['!rows'] = [{ hpx: 20 }, { hpx: 28 }, ...rows.map(() => ({ hpx: 22 }))];
-
     XLSX.utils.book_append_sheet(wb, ws, 'Portfolio');
-    XLSX.writeFile(wb, 'portfolio_export.xlsx', { cellStyles: true });
-    push('Portfolio exported as Excel', 'success');
+    XLSX.writeFile(wb, 'portfolio_export.xlsx', { cellStyles: true, bookSST: false });
+    push('Portfolio exported', 'success');
   };
 
-
-  const totalGIA = buildings.reduce((s, b) => s + (parseFloat(b.gia) || 0), 0);
+    const totalGIA = buildings.reduce((s, b) => s + (parseFloat(b.gia) || 0), 0);
   const countriesUsed = new Set(buildings.map(b => b.country)).size;
 
   // Build a set of building IDs that have any renewables energy rows
@@ -2390,7 +2350,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
           <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={(e) => handleCsvUpload(e, buildings, setBuildings, push)} />
           <Button variant="secondary" size="sm" icon={Download} onClick={downloadTemplate}>Download Excel template</Button>
           <Button variant="secondary" size="sm" icon={Upload} onClick={() => fileInputRef.current?.click()}>Upload CSV</Button>
-          {buildings.length > 0 && <Button variant="secondary" size="sm" icon={Download} onClick={exportBuildings}>Export portfolio</Button>}
+          {buildings.length > 0 && <Button variant="secondary" size="sm" icon={Download} onClick={exportBuildings}>Export data</Button>}
           {buildings.length > 0 && <Button variant="danger" size="sm" icon={Trash2} onClick={() => setConfirmClear(true)}>Clear all</Button>}
           <Button size="sm" icon={Plus} onClick={handleAdd}>Add building</Button>
         </>}
@@ -4169,7 +4129,7 @@ if (buildings.length===0) return (
         <div style={{display:'flex',gap:8}}>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => occupancyFileInputRef.current?.click()}>Upload CSV</Button>
-          {oRows.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyData}>Export data</Button>}
+          {oRows.length > 0 && <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyData}>Export data</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addORow}>Add row</Button>
         </div>
       </div>
@@ -7354,41 +7314,75 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   const deferredViews = useDeferredValue(views);
   const [composeOpen, setComposeOpen]   = useState(false);
   const [editingViewName, setEditingViewName] = useState(null); // index being renamed
-  const [draftName, setDraftName]       = useState('');
-  // Drag-and-drop reorder
-  // dragSrcRef / dragOverRef are the source of truth — updated synchronously.
-  // dragTick is a counter that only increments when the *visible* drag state changes
-  // (start, new hover target, end) — NOT on every dragover event.
-  // This means DashboardTab re-renders ~3 times per drag gesture instead of
-  // hundreds of times, eliminating the lag on the composer and chart cards.
-  const dragSrcRef  = useRef(null);
-  const dragOverRef = useRef(null);
-  const [dragTick, setDragTick] = useState(0);
-  const bumpDrag = () => setDragTick(t => t + 1);
-  // Convenience reads — always in sync because bumpDrag gates re-renders
-  const dragSrc  = dragSrcRef.current;
-  const dragOver = dragOverRef.current;
+  const nameInputRef = useRef(null); // uncontrolled — no state on keystrokes
+  // Drag-and-drop reorder — FULLY DOM-DRIVEN, zero React re-renders during a drag.
+  //
+  // The expensive part of this component is the chart panels (Recharts) and the map.
+  // Any React state change during a drag re-renders all of them and causes lag.
+  // So during a drag we touch NO React state at all: drag-hover highlighting is
+  // applied by mutating DOM node styles directly through a ref registry.
+  // React state only changes once, on drop, to commit the new panel order.
+  const dragSrcRef  = useRef(null);   // panel id being dragged
+  const dragOverRef = useRef(null);   // panel id currently hovered
+  // Registry of composer row DOM nodes, keyed by panel id, so we can restyle them
+  // directly without re-rendering. Populated via ref callbacks in ComposerPanelList.
+  const rowNodesRef = useRef({});
+
+  const paintRow = (id) => {
+    const node = rowNodesRef.current[id];
+    if (!node) return;
+    const isSrc = dragSrcRef.current === id;
+    const isTgt = dragOverRef.current === id && dragSrcRef.current !== id;
+    node.style.background = isTgt ? '#f0faf4' : isSrc ? '#fefce8' : '#fff';
+    node.style.borderColor = isTgt ? T.forest : isSrc ? T.amber : T.border;
+    node.style.opacity = isSrc ? '0.6' : '1';
+  };
+
+  const handleChartDragOver = (e, id) => {
+    e.preventDefault();
+    if (dragOverRef.current !== id) {
+      const prev = dragOverRef.current;
+      dragOverRef.current = id;
+      // un-paint previous (could be a composer row or a chart card)
+      if (prev) { paintRow(prev); paintChart(prev); }
+      paintChart(id);
+    }
+  };
+  const paintChart = (id) => {
+    const node = rowNodesRef.current['chart:' + id];
+    if (!node) return;
+    const isTgt = dragOverRef.current === id && dragSrcRef.current !== id;
+    const defaultBorder = id === 'map' ? 'transparent' : T.border;
+    node.style.borderColor = isTgt ? T.forest : defaultBorder;
+    node.style.outline = isTgt ? '2px dashed ' + T.forest : 'none';
+  };
 
   const handleDragStart = (id) => {
     dragSrcRef.current = id;
     dragOverRef.current = null;
-    bumpDrag();
+    paintRow(id);
   };
   const handleDragOver = (e, id) => {
     e.preventDefault();
     if (dragOverRef.current !== id) {
+      const prev = dragOverRef.current;
       dragOverRef.current = id;
-      bumpDrag(); // only re-render when hover target actually changes
+      if (prev) paintRow(prev);  // un-highlight previous target
+      paintRow(id);              // highlight new target
     }
   };
   const clearDrag = () => {
+    const src = dragSrcRef.current;
+    const over = dragOverRef.current;
     dragSrcRef.current = null;
     dragOverRef.current = null;
-    bumpDrag();
+    if (src) { paintRow(src); paintChart(src); }
+    if (over) { paintRow(over); paintChart(over); }
   };
   const handleDrop = (targetId) => {
     const src = dragSrcRef.current;
-    if (!src || src === targetId) { clearDrag(); return; }
+    clearDrag();
+    if (!src || src === targetId) return;
     updateView(activeViewIdx, v => {
       const panels = [...(v.panels || PANEL_REGISTRY.map(p => ({ id: p.id, visible: p.defaultVisible, span: p.defaultSpan })))];
       const srcIdx = panels.findIndex(p => p.id === src);
@@ -7398,7 +7392,6 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
       panels.splice(tgtIdx, 0, removed);
       return { panels };
     });
-    clearDrag();
   };
 
   const activeView = views[activeViewIdx] || views[0];
@@ -7666,18 +7659,18 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   );
 
   const ChartCard = ({ title, subtitle, legend, children, panelId }) => {
-    const isDragTarget = dragOver === panelId && dragSrc !== panelId;
     return (
       <div
-        onDragOver={panelId ? (e) => handleDragOver(e, panelId) : undefined}
+        ref={node => { if (panelId) { if (node) rowNodesRef.current['chart:' + panelId] = node; else delete rowNodesRef.current['chart:' + panelId]; } }}
+        onDragOver={panelId ? (e) => handleChartDragOver(e, panelId) : undefined}
         onDrop={panelId ? () => handleDrop(panelId) : undefined}
         onDragEnd={clearDrag}
         style={{
           background: '#fff',
-          border: '1px solid ' + (isDragTarget ? T.forest : dragSrc === panelId ? T.amber : T.border),
+          border: '1px solid ' + T.border,
           borderRadius: 8, padding: '20px 24px',
-          opacity: dragSrc === panelId ? 0.5 : 1,
-          outline: isDragTarget ? '2px dashed ' + T.forest : 'none',
+          opacity: 1,
+          outline: 'none',
           outlineOffset: 2,
           transition: 'border-color 0.15s, outline 0.15s, opacity 0.15s',
         }}
@@ -7741,11 +7734,11 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
           <div key={idx} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             {editingViewName === idx ? (
               <input
+                ref={nameInputRef}
                 autoFocus
-                value={draftName}
-                onChange={e => setDraftName(e.target.value)}
+                defaultValue={v.name}
                 onBlur={() => {
-                  const trimmed = draftName.trim();
+                  const trimmed = nameInputRef.current?.value.trim();
                   if (trimmed) updateView(idx, v => ({ name: trimmed }));
                   setEditingViewName(null);
                 }}
@@ -7758,7 +7751,7 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
             ) : (
               <button
                 onClick={() => setActiveViewIdx(idx)}
-                onDoubleClick={() => { setDraftName(v.name); setEditingViewName(idx); }}
+                onDoubleClick={() => setEditingViewName(idx)}
                 title="Double-click to rename"
                 style={{
                   fontFamily: T.body, fontSize: 13, fontWeight: idx === activeViewIdx ? 600 : 400,
@@ -7820,10 +7813,10 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
               const reg = PANEL_REGISTRY.find(p => p.id === panelId);
               if (!reg) return null;
               const cfg = panelCfgImmediate[panelId] || { visible: reg.defaultVisible, span: reg.defaultSpan };
-              const isDragTgt = dragOver === panelId && dragSrc !== panelId;
               return (
                 <div
                   key={panelId}
+                  ref={node => { if (node) rowNodesRef.current[panelId] = node; else delete rowNodesRef.current[panelId]; }}
                   draggable
                   onDragStart={() => handleDragStart(panelId)}
                   onDragOver={e => handleDragOver(e, panelId)}
@@ -7832,9 +7825,9 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 14px', borderRadius: 8,
-                    background: isDragTgt ? '#f0faf4' : dragSrc === panelId ? '#fefce8' : '#fff',
-                    border: '1px solid ' + (isDragTgt ? T.forest : dragSrc === panelId ? T.amber : T.border),
-                    cursor: 'grab', opacity: dragSrc === panelId ? 0.6 : 1,
+                    background: '#fff',
+                    border: '1px solid ' + T.border,
+                    cursor: 'grab', opacity: 1,
                   }}
                 >
                   {/* Drag handle */}
@@ -8158,14 +8151,15 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
           })()}
           </div>}{/* end kpi panel */}
           {panelId === 'map' && <div
+            ref={node => { if (node) rowNodesRef.current['chart:map'] = node; else delete rowNodesRef.current['chart:map']; }}
             style={{ gridColumn: 'span 2',
-              border: '1px solid ' + (dragOver === 'map' && dragSrc !== 'map' ? T.forest : dragSrc === 'map' ? T.amber : 'transparent'),
+              border: '1px solid transparent',
               borderRadius: 8,
-              outline: dragOver === 'map' && dragSrc !== 'map' ? '2px dashed ' + T.forest : 'none',
+              outline: 'none',
               outlineOffset: 2,
               transition: 'border-color 0.15s, outline 0.15s',
             }}
-            onDragOver={(e) => handleDragOver(e, 'map')}
+            onDragOver={(e) => handleChartDragOver(e, 'map')}
             onDrop={() => handleDrop('map')}
           >{/* ── PANEL: map ── */}
           {isPanelVisible('map') && <div style={{ overflow: 'visible' }}><BuildingMap
