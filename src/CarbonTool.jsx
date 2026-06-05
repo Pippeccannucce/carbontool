@@ -1123,10 +1123,10 @@ function validateEnergyRow(row, buildings, fuels) {
   return { errors, warnings };
 }
 
-function validateBillRow(row, buildings) {
+function validateBillRow(row, bldgLookup) {
   const errors = []; const warnings = [];
   if (!row.buildingId) errors.push('Building is required');
-  else if (!buildings.find(b => b.id === row.buildingId)) errors.push('Building not found in portfolio');
+  else if (!bldgLookup.has(row.buildingId)) errors.push('Building not found in portfolio');
   if (!row.fuel) errors.push('Fuel type is required');
   if (!row.currency) errors.push('Currency is required');
   const allBlank = row.cells && Object.keys(row.cells).length > 0
@@ -1638,15 +1638,15 @@ function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, s
 
       <SectionHeading num="01">Get started</SectionHeading>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20, marginBottom: 56 }}>
-        <ActionCard num="01" title="Add your portfolio" desc="Upload a CSV of buildings, or add them one at a time. Each building needs a country, GIA, and asset class split." action={() => onNavigate('portfolio')} actionLabel="Open Portfolio" />
-        <ActionCard num="02" title="Add energy data" desc="Paste monthly energy bills directly from Excel into a spreadsheet grid, or upload as CSV. Configure non-electricity emission factors." action={() => onNavigate('energy')} actionLabel="Open Energy data" />
-        <ActionCard num="03" title="Load sample data"
+        <ActionCard num="01" title="Load sample data"
           desc={sampleDataLoaded
-            ? "Sample data already loaded — clear from Portfolio and Energy tabs first."
-            : "Instantly load a 500-building sample portfolio with a full year of energy data and inferred utility bills across 12 countries."}
-          action={sampleDataLoaded ? null : loadBuiltInSampleData}
-          actionLabel={sampleDataLoaded ? null : "Load 500-building dataset"}
+            ? "Sample data already loaded — head to the Dashboard to explore."
+            : "Instantly load a 500-building portfolio with a full year of energy data across 12 countries. The fastest way to explore the tool."}
+          action={sampleDataLoaded ? () => onNavigate('dashboard') : loadBuiltInSampleData}
+          actionLabel={sampleDataLoaded ? "Go to Dashboard →" : "Load 500-building dataset"}
+          highlight={!sampleDataLoaded}
         />
+        <ActionCard num="02" title="Add your own portfolio" desc="Upload a CSV of buildings, or add them one at a time. Then add energy data — and you're ready for the Dashboard." action={() => onNavigate('portfolio')} actionLabel="Open Portfolio" />
       </div>
 
       <SectionHeading num="02">Reference data</SectionHeading>
@@ -1771,11 +1771,15 @@ function ReferencePanel({ icon: Icon, title, count, items, initialShow = 8 }) {
   );
 }
 
-function ActionCard({ num, title, desc, action, actionLabel, secondaryAction, secondaryLabel }) {
+function ActionCard({ num, title, desc, action, actionLabel, secondaryAction, secondaryLabel, highlight }) {
   return (
-    <div style={{ padding: '20px 24px', background: '#fff', border: '1px solid ' + T.border, borderRadius: '8px', display: 'flex', flexDirection: 'column' }}>
-      <h3 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 8px' }}>{title}</h3>
-      <p style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, lineHeight: 1.6, margin: '0 0 20px', flexGrow: 1 }}>{desc}</p>
+    <div style={{
+      padding: '20px 24px', borderRadius: '8px', display: 'flex', flexDirection: 'column',
+      background: highlight ? '#f0faf4' : '#fff',
+      border: '1px solid ' + (highlight ? T.forestSoft : T.border),
+    }}>
+      <h3 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: highlight ? T.forest : T.ink, margin: '0 0 8px' }}>{title}</h3>
+      <p style={{ fontFamily: T.body, fontSize: 13, color: highlight ? '#4a7c5f' : T.warmGrey, lineHeight: 1.6, margin: '0 0 20px', flexGrow: 1 }}>{desc}</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {action && <Button onClick={action} icon={ChevronRight} variant="success" style={{ alignSelf: 'flex-start' }}>{actionLabel}</Button>}
         {secondaryAction && <Button onClick={secondaryAction} variant="secondary" style={{ alignSelf: 'flex-start' }}>{secondaryLabel}</Button>}
@@ -2115,7 +2119,7 @@ function BuildingForm({ open, onClose, onSave, building, allBuildings }) {
 // =================================================================
 const PORTFOLIO_TEMPLATE_XLSX_B64 = "UEsDBBQAAAAIAAOlxFxGx01IlQAAAM0AAAAQAAAAZG9jUHJvcHMvYXBwLnhtbE3PTQvCMAwG4L9SdreZih6kDkQ9ip68zy51hbYpbYT67+0EP255ecgboi6JIia2mEXxLuRtMzLHDUDWI/o+y8qhiqHke64x3YGMsRoPpB8eA8OibdeAhTEMOMzit7Dp1C5GZ3XPlkJ3sjpRJsPiWDQ6sScfq9wcChDneiU+ixNLOZcrBf+LU8sVU57mym/8ZAW/B7oXUEsDBBQAAAAIAAOlxFwFJPds7gAAACsCAAARAAAAZG9jUHJvcHMvY29yZS54bWzNkk1qwzAQRq9StLdHdoIXwvEmJasUCg20dCekSSJq/SBNsXP7ym7iUNoDFLTRzKc3b0CtCkL5iM/RB4xkMD2MtndJqLBhZ6IgAJI6o5WpzAmXm0cfraR8jScIUn3IE0LNeQMWSWpJEiZgERYi61qthIooyccrXqsFHz5jP8O0AuzRoqMEVVkB66aJ4TL2LdwBE4ww2vRdQL0Q5+qf2LkD7Jock1lSwzCUw2rO5R0qeHvav8zrFsYlkk5hfpWMoEvADbtNfl1tHw871tW8bgqez/pQc7Hmgjfvk+sPv7uw9doczT82vgl2Lfz6F90XUEsDBBQAAAAIAAOlxFyZXJwjEAYAAJwnAAATAAAAeGwvdGhlbWUvdGhlbWUxLnhtbO1aW3PaOBR+76/QeGf2bQvGNoG2tBNzaXbbtJmE7U4fhRFYjWx5ZJGEf79HNhDLlg3tkk26mzwELOn7zkVH5+g4efPuLmLohoiU8nhg2S/b1ru3L97gVzIkEUEwGaev8MAKpUxetVppAMM4fckTEsPcgosIS3gUy9Zc4FsaLyPW6rTb3VaEaWyhGEdkYH1eLGhA0FRRWm9fILTlHzP4FctUjWWjARNXQSa5iLTy+WzF/NrePmXP6TodMoFuMBtYIH/Ob6fkTlqI4VTCxMBqZz9Wa8fR0kiAgsl9lAW6Sfaj0xUIMg07Op1YznZ89sTtn4zK2nQ0bRrg4/F4OLbL0otwHATgUbuewp30bL+kQQm0o2nQZNj22q6RpqqNU0/T933f65tonAqNW0/Ta3fd046Jxq3QeA2+8U+Hw66JxqvQdOtpJif9rmuk6RZoQkbj63oSFbXlQNMgAFhwdtbM0gOWXin6dZQa2R273UFc8FjuOYkR/sbFBNZp0hmWNEZynZAFDgA3xNFMUHyvQbaK4MKS0lyQ1s8ptVAaCJrIgfVHgiHF3K/99Ze7yaQzep19Os5rlH9pqwGn7bubz5P8c+jkn6eT101CznC8LAnx+yNbYYcnbjsTcjocZ0J8z/b2kaUlMs/v+QrrTjxnH1aWsF3Pz+SejHIju932WH32T0duI9epwLMi15RGJEWfyC265BE4tUkNMhM/CJ2GmGpQHAKkCTGWoYb4tMasEeATfbe+CMjfjYj3q2+aPVehWEnahPgQRhrinHPmc9Fs+welRtH2Vbzco5dYFQGXGN80qjUsxdZ4lcDxrZw8HRMSzZQLBkGGlyQmEqk5fk1IE/4rpdr+nNNA8JQvJPpKkY9psyOndCbN6DMawUavG3WHaNI8ev4F+Zw1ChyRGx0CZxuzRiGEabvwHq8kjpqtwhErQj5iGTYacrUWgbZxqYRgWhLG0XhO0rQR/FmsNZM+YMjszZF1ztaRDhGSXjdCPmLOi5ARvx6GOEqa7aJxWAT9nl7DScHogstm/bh+htUzbCyO90fUF0rkDyanP+kyNAejmlkJvYRWap+qhzQ+qB4yCgXxuR4+5Xp4CjeWxrxQroJ7Af/R2jfCq/iCwDl/Ln3Ppe+59D2h0rc3I31nwdOLW95GblvE+64x2tc0LihjV3LNyMdUr5Mp2DmfwOz9aD6e8e362SSEr5pZLSMWkEuBs0EkuPyLyvAqxAnoZFslCctU02U3ihKeQhtu6VP1SpXX5a+5KLg8W+Tpr6F0PizP+Txf57TNCzNDt3JL6raUvrUmOEr0scxwTh7LDDtnPJIdtnegHTX79l125COlMFOXQ7gaQr4Dbbqd3Do4npiRuQrTUpBvw/npxXga4jnZBLl9mFdt59jR0fvnwVGwo+88lh3HiPKiIe6hhpjPw0OHeXtfmGeVxlA0FG1srCQsRrdguNfxLBTgZGAtoAeDr1EC8lJVYDFbxgMrkKJ8TIxF6HDnl1xf49GS49umZbVuryl3GW0iUjnCaZgTZ6vK3mWxwVUdz1Vb8rC+aj20FU7P/lmtyJ8MEU4WCxJIY5QXpkqi8xlTvucrScRVOL9FM7YSlxi84+bHcU5TuBJ2tg8CMrm7Oal6ZTFnpvLfLQwJLFuIWRLiTV3t1eebnK56Inb6l3fBYPL9cMlHD+U751/0XUOufvbd4/pukztITJx5xREBdEUCI5UcBhYXMuRQ7pKQBhMBzZTJRPACgmSmHICY+gu98gy5KRXOrT45f0Usg4ZOXtIlEhSKsAwFIRdy4+/vk2p3jNf6LIFthFQyZNUXykOJwT0zckPYVCXzrtomC4Xb4lTNuxq+JmBLw3punS0n/9te1D20Fz1G86OZ4B6zh3OberjCRaz/WNYe+TLfOXDbOt4DXuYTLEOkfsF9ioqAEativrqvT/klnDu0e/GBIJv81tuk9t3gDHzUq1qlZCsRP0sHfB+SBmOMW/Q0X48UYq2msa3G2jEMeYBY8wyhZjjfh0WaGjPVi6w5jQpvQdVA5T/b1A1o9g00HJEFXjGZtjaj5E4KPNz+7w2wwsSO4e2LvwFQSwMEFAAAAAgAA6XEXJHzakMMCQAAcTUAABgAAAB4bC93b3Jrc2hlZXRzL3NoZWV0MS54bWzlW29T4roX/ir5ce/du7+ZXaG1gJdVZxRQWUURRF/eiTRAZ0tTk1T0fvp70j8s0CTFjnNnZ3yDbU6eJyfnNE/+tB4uKfvB54QI9LLwA35UmQsRtqpVPpmTBeZ7NCQBWKaULbCAWzar8pAR7MaghV+1a7VGdYG9oHJ8GJcN2PEhjYTvBWTAEI8WC8xeT4lPl0cVq5IVDL3ZXMiC6vFhiGdkRMQ4HDC4q65YXG9BAu7RADEyPaqcWK2HhqwfV7j3yJKvXSPZk0dKf8ibnntUqVUkc0DQ6yj0PWhrv4IEDa/IVLSJ7wOfU0F4IrxnMoBqR5VHKgRdSDt4KbCAoimj/5AgbpP4BOqCL2GuckKSksouPqX+VlbdkU6tX2een8VxhTg9Yk7a1H/wXDE/qhxUkEumOPLFkC4vSBqruuSbUJ/Hv2iZ1LWg8iTi4E0KBg8WXpD8xS9pjNcAdkMDsFOAvQXYtzWA/RSwvwWwHA3ASQHONkDXQj0F1HcFNFJAY1dAMwU0twG6sB6kgINdO/1XCvhrV5esWpa52s6QVbJz2dZCsnRb2/nWP1FZwq1cxrWQLOXWzjm3sqRbuazrQmxlabe2827XdJAs8dbOmbey1Fvbude3kiXf2s6+FmJn2bdz2dc5ZmfZt7ezr4esBvt29vWOZdm34+xXEyWKZayDBT4+ZHSJWFw/lqtV0ysBA0WeyBqxSMYVodQL5FQxEgysHhCK455LAuGJ18OqgGZkWXWSIk/XkXLKWVnaWktHa+lqLWday3lisTW+D+av3JtgH7XnmMHEQJjHhTfhir5crDNttNHTWr5rLZday1Vi2dd4fBp5vusFMzR65YIsVJ721xk2uK+1lpvE4mhaHRLB6NQT6MzHM44+4UX4DZ3AwkLV/mCda6OVW61lqLWMtJY7rWWstdxrLQ8qSxUGyWqk2MlI+Tkh50eKHXPUi3LX66gGy47ga7wgCnjbDD9xXUa4Kl0dM7BNo0CwV9SmrqrZrhl9hUEaIiXyrABJg5kOem6GnvdO0OfFp9+s5sG3/6uGckGoOIcFdtvHnOt63dud4Q8F/LsZ3h200RACF8wU2MuCpv1wjtHn2qffDmzL+map+n9lprggcdupwqgEpiD8Pv5H4u9eQ1XsrgvyLseUAX5T4Dzm6LQ/UslSMXBEfczQ4F6Bvi1Gd6dTb+LBZIgu7k/aCo5hMUfn4gHJ+KNBtAgVFKNiiiGlU9QLeORjuQNSkNwVkzxg3zeTjItJTjyGRgT76gf53kyQ5SKeZozD+aFgRDxjz8ePPkkio2HaUPr9ROkdR6/0+3GbDe18+RR5jLgoHob2NxQF3lNEQPj30JCEMsEcZBzuEezVYcH2QtyvESfoM4UtsPQiJAzhWEYmUkZU/T59ow+ux0Mfv6JAM4GY6W5C+SDAUmnVJQ7csfc4RDNCJ9RVJ7rzRj/trz4RsBRD7eGw20fASxDZm+2h8eUX1Ol+QWdD1UT0RvddMvEWcO+SGSOEQ+SfCWOeC5erzqiifvYftXP+xqidMwqzTS+AwMnm41HjBSh92lWz4BsbSM5U0JTRBfJhmayaFt9I+QeCAQmzNQwKuuSwpRHz1bhYwMCTx09IUGTVaqpZ9I2Z2KEDl2/swGqaRVM5hBEJCJu9QhM4Pn2CRxbGdG2vjrwpSACPmGrgXb1/P/rvT3n9/pQ3ZspRwiAYCGcVTbHPVdEbvAfJ7XuQDN+DZPQeJHfvQTJ+D5J7M0n3Re63YbHHs9lentf6CBeq10PBSJVTfcyCV9O/nKsCskya4Fr6jZWAk+75LP1KwIkdaeq2bVed86+1mqWav83I7gvsssHtG7msVE7YZryFLsBVBEWEiC8I9lOuciHXMdOML1WT7TpGbpafj+vWXr3WdA6rz+uTZb7e19qeZTcPNuud5+vZdSn665UuzI7enJ2ppqQ8s7VN/N1MrFrKX+ZpQeY3aa/MtDPM/36knk+YSsDNWJdG8ESrVNqM84mr0mEzSA5xlfCaUVqpLQcbloONSnXtrlxj43Kwe8WztPkkPeRr7K89xBuKVS9WrHrMdmBWLFulWGZkf7WNyQ6rVKpl5qijPmY/YNszeopAv7/AbTCZEy6Uw6RjJlNrlw7zU7UKa5yv10gS4tRyemV2TqNXeebGtlwV5E8lV3nWvFyZaeewaf07VJ9K9M1QwbxQrVZmnEatihpTq1Up1G0p1NCM0mpVqcbuSqHG5Vy8zz9H9vZj/5CvY9U1YtUoFqvGLssrpViZkbuJlZnjjWJlJlOLlQ7zU6wKa5w3crOHQqzMzg0vVEeqPRXzllgV5E8lVnnWvFiZaY1iZYbqxcqM04hVUWNqsSqFui2FGppRWrEq1dhdKdS4nIv3+ecoL1b5Onmxqq69NceRoGeeL48nk8+G7NZD/E7eBfM99j03PjDnaCLfm8UfQWzbsi+OLpzWhVVzDupN6cScLjuMhh26DOTXUHFBLwgj0Sec4xlJPseCwi5jlK0XYt+ny1MfBz/iWyLtd57wwdoLnmWzCH4jkpogd8nWHSfFyRGNmJP4mGavgkK4D0XKsPYqK7NsEgB7ck67dlodn9lCSF9DYJCsEAP5TVrkY+v46M8rSn9EIf/zf7+f/L7fgh8LtoMr+2F1M1y68HWcVueXD1/69lQbutxZd/Kydff42bYMYN0pEcArp3X1ywdw82WkIo7ztAKPK8Qx2y1y9QMZuYZdInJ9p9X/5SO3/hpWEbdZat49YI1GHLAyY/XaaV3/8gHbePOsiJif2XcPWTMenc0yo/O70/r+y4fs55cK+XgFSFpZat0pWvGIPGiWiNaN07p5S7Rq7xWtrnzhhj49RVR8k8uX5ArRrCxenCSXe7ooVCTwS1yzUqLvA6c1+Kh9v3Vatx+170OnNfyofR85rdFH7fud07r7qH0fO63xR+37pdO6/I/6juVXhKu+J98Uxh9kPBJYGATR4hGC8UjEkpAA1WCud5G16nb6xUsF0ZDA9C8Z0qrrwaitRyC9so+tVamtiMtWAU/+GamP2cyDHbdPprD8qO016xXEkmPE5EbQMO5p8l9AySfvBLuEyQpgn1Iqshv5qfzqv6yO/wVQSwMEFAAAAAgAA6XEXLkaQAMyCAAAWjcAABgAAAB4bC93b3Jrc2hlZXRzL3NoZWV0Mi54bWydW9ty2zgS/RWUtmpeUhVZvIjMrO0qWZIvO7KtkuLMzL6kYBGSWCEJLghGcb5+QUrxmHGru+OXxBJ4GueAwOkGSJ3utPlSbZWy4lueFdVZb2tt+Xu/X622KpfVe12qwrWstcmldR/Npl+VRsmkBeVZ3zs5GfZzmRa989P2u7k5P9W1zdJCzY2o6jyX5ulCZXp31hv0fnyxSDdb23zRPz8t5UYtlX0o58Z96j9HSdJcFVWqC2HU+qw3Gvw+jqMG0F7xKVW76sXfopHyqPWX5sNNctY76TWhCyWelmWWus68nrC6nKm1HasscwH9npArm35Vc3fZWe9RW6vzpt3RtNK6r9ZGf1dF26fKlLvWkSlfXbwPcgjaaPzfgXDvWU9D6uXfP5hftgPrBupRVmqssz/TxG7PenFPJGot68wu9O5aHQYrbOKtdFa1/4rd/lrP6VrVlWNzADsGeVrs/5ffDoP8AuAPjwC8A8D7CeDFRwD+AeC3QvfMWlkTaeX5qdE7YdqrW/rPUZ4FuTu0aq5oB+2s98HdoLNeWjRzZ2mNa01dQHs+qio3QceZrCox1omqTvvW9dc09leHEBcvQzST8bllDLX0Hbdngt6eoHdynKDXxhicHGHYsIJIEbA7mUOwMdXbYjG9FXNptzv51MV3dPn0wPttT/GRju4vLyFVBGi9TlegLBw31nmuzCqVmfjtX7E38P4toFAdhQGtMGg7jY50uph+hBQSIGVl+g/LK1UoIzNIMR4HULwPjSgOacUhOsyL6yWkmAB1FV+7LoVrdysdUo3HeovqIa16iN+y2T2kmgB1Vc+k2ShxX1uh1+Kj3hWQdjziW7RHtPYIv3nLMaSdAHW1L7e6LNNiI8aqcPcdUo7He4vymFYeo8N9czeBlBOgInGdmYZpX8z0Jq1suoJSzpgbB5H4gZb4AR3X63vQwAiQtgr0q1+GdcQ0CYvM9CeEH4PuRKFUlSZuYr4a60MB8EZ0VxynjBng4zcdgeIIlJKZ3a4kvOoI8L3dKoOp8hiqPHT4ppMHUBWBSuqVbOppUBSOJUUxCp8BXozMpjegKAKl0qo+cp+IoomSxKh0Bni1cXvzFyiJQKXfVCIeKlgUjr3IVJGoBJPFKGcGeDkxu78CZREozNcJLMvYB4ySZUAUC6MFqIxASeO2BuYLKAyHkpOQUYoM8DJgMgLTFYVy20mk8iDQpCxGnTHAc/1sdAHKIlDyURtptXkCVeFgSpXHSMbePjE2OeRI0Va7MX86vunuBuhuu+G2LscBY+c9eOPWm8S12rARZORGz0OnHjzbKdDeXTBmjATn+bg3T0FmBEhlm7TOMWaMPOUFqPwL0M8pUJ1tJDFojFzjhbi3XoPUcNByl9rvymSywDKhx8gX3hDfYv0NsiNAT6WpK4wYw/S9CB+2/4LECNB3tdq6PWJZP2bpCiPIsG8vxvMLvBhw0JUyuSxQA2Hs7rwP6ChM/gCZESBV5K8qgO7JICM5+Ceo/Ck4ZhTIdVWgq9RnbLP8Ab61ALeQBGhZyrTAeDGSgY/7+iW4paBA7ivcOXzOMS/u65dgoUmBjCzQw1mfkQt83NavYGIEyCiFE2NkAh839WuYGJE+jHZbXnT2M7KAjxv6Nbgbp0B14dIn+iyBkQZ83NFvYMcgQEZR85/h/z5u5TdgmUaBrMzQEWO4v48b+QzmRYBSu60l7rIBw/8D3Mpn4DyjQPU3lT/q2mwwcowUEOBuPvsEkiNA0n7FR42RAwLczm/hx00ESGYW5cXIAAFu5nczkBcBUs0etFmeWAEZcB7S4Y5+Bz68oUDa4I9HA0YaCHBHn8PDRoA04WgBIwsEuKHP4XlGgLSx9QY91goYaSDAHX0B30wCpHPK0hhpIMAdfQkmKAq0U4nCKseAkQcC3NKXYOVIgTL9VeFjFjLSQIg7+hLcoFAgR01+wakxkkCI+/kDTI0AFalVifgjLTaJxk46QkYyCHFff4CfxBOgPcFl84ISZrshIymEuL+PwBRPgZrTK5nhN5eREkLc3f8zB7kRIFlKbKmGDOMNh/iZ6bVyNX6xEcunyqocPDXthuiemsJtXZYRfWoaRvjp5yeZ1eCxKQWcqGpl0vL1k7suRYYZh7ivbmT1+VGn2c+H3AeaOPhO2tpNQuGCCChIlyzDoEPca10XGFkcfJ9mNMkhw6qHuOtu3cz8XNZ5Cb4Jg2NHqRHaiI3RdZGIylXwKyWagOJ1wC5vho8PcUtO0uY8fGU/b/dLC6SPh5gcQohDCFEo27wvihFn+PsQt+r2lVHXLTI1iAiT1LgQ4kcg0WdMFIa3DgPcw64y+b0ZpY9PJfzcpxug62BwW5djSDvYMHyjg1FAnoMNOa+c4eV05YYwgyniwGULFJv9XcBIMqrxIV5YJ7p+PEISB05aIIckIxcMcTt3c788QhIHfmyBDJIRw14j4mnprAGgyyZCHpfCbV2SjMelEfHY8+iyoYC8ZRMxXDPCPW+d1dq4zlQBvVx6QaAv/0E7t9zKTG/Q3VnEKJMjvOLNfn7F5UAUR82mE4wWw8UjvNjNmzd3QGI47vY1rkuN4YwRUSRP52OxaDMxvE6QAhlu6zJkFMjRrxfI3T4Yrhbh5jR69+4d1gOjLI3wynKEdhAzPC8mykI0PqP0i/G6bYSFZ1hNjJvFBRaeYQwxvsTHWHjGAo/xhYr5R8w424zxY8opFp7hATFe5Fxi4Rl1TYyXJ1dQ+P6LHyc1vzq7lWaTFpXI1NoFOXkfuREx+472H6wumz7F/tde7Z9uB5Eo01zg2tda2x8fmp9APf+c7vz/UEsDBBQAAAAIAAOlxFzETztC2gMAAPIYAAANAAAAeGwvc3R5bGVzLnhtbN1Z7Y7iNhR9lSgP0JAYAqkAaSYTpJXa1Uo7P/rXEAcsOR9NzCzs06+vHYgZckcZSrezDUKxfX3OPde+dhyYN/Io2NcdY9I55KJoFu5Oyup3z2s2O5bT5reyYoWyZGWdU6mq9dZrqprRtAFQLrxgNAq9nPLCXc6Lfb7KZeNsyn0hF+7I9ZbzrCy6lolrGlRXmjPnhYqFG1PB1zXXfWnOxdE0B9CwKUVZO1JJYQvXh5bmuzH7pgYqW56cF2UNjZ7x8NrPQ82pAPu6Zegc1Nu1Ujta6cv2Et2Zzx8NIeQYYRSMR6PEJpwN4bvg8H1/FkxRUfrWKDIuxHnaItc0LOcVlZLVxUpVNEY3Xpmctvx8rNS8bWt69IOJOxjQlIKn4HIbXyhPggkxWi3oPyQlD9OnSXxnUv9pnDzN7kw6jclD8nRnUpWfj8njvUnJarwK76+0XUy9pPqm8nZd1imrz5kbuqem5VywTCp4zbc7uMuygsVbSlnmqpByui0LqtP6hLCRjt4qF67c6a3uYk2R6dif6OXqQdfWx0CE7qvlDASonifdAxGm8w2BrSZRMnp8T2AWYlhgFqAnsJylfJ+/gbk5tGScTJP4PaFZiGGhWYCBc2Yhbg7M2tGGJmOHGJiMHWBoMnaImwOzdtWBgVmIYYFZgIGBWYirwNqC2pU2TIivQPJXdt6afEV1yBxzZvqUwnHJgYfvqaj2s7ZoaEwFHNlshtumDW7idSr+UsrHvQqh0PW/96VkX2qW8YOuH7KzAIzd79iDV+y0qsTxQfBtkTMT/GCHyzk94ZxdWfPvyhscWyAHXOeF1ZJvoL5RHZg5AB6yQSLJryBy/CuInHxYkQGSk/6/IrIVdS3T+VbT6pkdZHusf1Mz6TSHtubgZw7suxSPO8VTWzH5SKlgiZx9WJHY9jT+SCJ/7qK68x46+S9Eeu1T2joKXBwEzq0OvL8v3M/we4vo3DrrPReSF21tx9OUFVfnAUUv6VqwS37VP2UZ3Qv5fDYu3K78pz5jR+deX2Ao2l5d+Q84QPnh+fcE5YsXKTuwNG6r6kR08cZmLgC8tnTvctcWDGNs/RawYX4wBRjGoDA//6d4Zmg8xoZpm/VaZihmhmIMqs8S6w/mpx8Tqas/0igiJAyxEY3jXgUxNm5hCN9+NkwbIDA/4Ol9Y43PNp4hb+cBNqdvZQgWKZ6JWKT4WIOlf9wAEUX9s435AQQ2C1jugP9+P5BT/RhCYFYxbdgKxi1RhFkgF/tzNAyR0Qnh0z8/2CohJIr6LWDrV0AIZoHViFswBaABsxCin4Ovnkfe6Tnldf9yLH8AUEsDBBQAAAAIAAOlxFyXirscwAAAABMCAAALAAAAX3JlbHMvLnJlbHOdkrluwzAMQH/F0J4wB9AhiDNl8RYE+QFWog/YEgWKRZ2/r9qlcZALGXk9PBLcHmlA7TiktoupGP0QUmla1bgBSLYlj2nOkUKu1CweNYfSQETbY0OwWiw+QC4ZZre9ZBanc6RXiFzXnaU92y9PQW+ArzpMcUJpSEszDvDN0n8y9/MMNUXlSiOVWxp40+X+duBJ0aEiWBaaRcnToh2lfx3H9pDT6a9jIrR6W+j5cWhUCo7cYyWMcWK0/jWCyQ/sfgBQSwMEFAAAAAgAA6XEXJrNe99/AQAAKgMAAA8AAAB4bC93b3JrYm9vay54bWy1UmFL5DAQ/Su9sOA3u5Y7wWW7cJzoCaKLivdR0mZqB5NMSaau+uudtHZvRRC/+Cl5b8KbN2+y3FB4qIgesidnfSxVy9wt8jzWLTgd96kDL5WGgtMsMNznsQugTWwB2Nm8mM8Pc6fRq9Vy0lqHfBcQQ81IXshE3CJs4v96gtkjRqzQIj+XarhbUJlDjw5fwJRqrrLY0uYvBXwhz9pe14GsLdXBWLiFwFh/oK+TyRtdxYFhXV1pMVKqw7kINhgiDy8GfS0eH0Eej6hnOkHLEI41w2mgvkN/n2RkinxnjCGH6RxDXISvxEhNgzUcU9078DzmGMAmgz622EWVee2gVGsK3JBFSjNJkzMzzsdibCetsEAphDMzWPw+O+cye5/g1kzxiZliyGsKyUCDHsyFCL1Hb9p3T9a7/btt8LrSUdQspdVO7WQ7LRoDPsWw2tvGs/dj9ntWLGb/ZsUy39FevUPSV8TqdcjSMWRZ/Px1cCT/obf2j3CX/py0mVY9fdPVK1BLAwQUAAAACAADpcRcjfcsWrQAAACJAgAAGgAAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzxZJNCoMwEEavEnKAjtrSRVFX3bgtXiDo+IPRhMyU6u1rdaGBLrqRrsI3Ie97MIkfqBW3ZqCmtSTGXg+UyIbZ3gCoaLBXdDIWh/mmMq5XPEdXg1VFp2qEKAiu4PYMmcZ7psgni78QTVW1Bd5N8exx4C9geBnXUYPIUuTK1ciJhFFvY4LlCE8zWYqsTKTLylDCv4UiTyg6UIh40kibzZq9+vOB9Ty/xa19ievQ38nl4wDez0vfUEsDBBQAAAAIAAOlxFxupyS8HgEAAFcEAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbMWUz07DMAzGX6XKdWoyduCA1l2AK+zAC4TWXaPmn2JvdG+P226TQKNiKhKXRo3t7+f4i7J+O0bArHPWYyEaovigFJYNOI0yRPAcqUNymvg37VTUZat3oFbL5b0qgyfwlFOvITbrJ6j13lL23PE2muALkcCiyB7HxJ5VCB2jNaUmjquDr75R8hNBcuWQg42JuOAEoa4S+sjPgFPd6wFSMhVkW53oRTvOUp1VSEcLKKclrvQY6tqUUIVy77hEYkygK2wAyFk5ii6mycQThvF7N5s/yEwBOXObQkR2LMHtuLMlfXUeWQgSmekjXogsPft80LtdQfVLNo/3I6R28APVsMyf8VePL/o39rH6xz7eQ2j/+qr3q3Ta+DNfDe/J5hNQSwECFAMUAAAACAADpcRcRsdNSJUAAADNAAAAEAAAAAAAAAAAAAAAgAEAAAAAZG9jUHJvcHMvYXBwLnhtbFBLAQIUAxQAAAAIAAOlxFwFJPds7gAAACsCAAARAAAAAAAAAAAAAACAAcMAAABkb2NQcm9wcy9jb3JlLnhtbFBLAQIUAxQAAAAIAAOlxFyZXJwjEAYAAJwnAAATAAAAAAAAAAAAAACAAeABAAB4bC90aGVtZS90aGVtZTEueG1sUEsBAhQDFAAAAAgAA6XEXJHzakMMCQAAcTUAABgAAAAAAAAAAAAAAICBIQgAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLAQIUAxQAAAAIAAOlxFy5GkADMggAAFo3AAAYAAAAAAAAAAAAAACAgWMRAAB4bC93b3Jrc2hlZXRzL3NoZWV0Mi54bWxQSwECFAMUAAAACAADpcRcxE87QtoDAADyGAAADQAAAAAAAAAAAAAAgAHLGQAAeGwvc3R5bGVzLnhtbFBLAQIUAxQAAAAIAAOlxFyXirscwAAAABMCAAALAAAAAAAAAAAAAACAAdAdAABfcmVscy8ucmVsc1BLAQIUAxQAAAAIAAOlxFyazXvffwEAACoDAAAPAAAAAAAAAAAAAACAAbkeAAB4bC93b3JrYm9vay54bWxQSwECFAMUAAAACAADpcRcjfcsWrQAAACJAgAAGgAAAAAAAAAAAAAAgAFlIAAAeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHNQSwECFAMUAAAACAADpcRcbqckvB4BAABXBAAAEwAAAAAAAAAAAAAAgAFRIQAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLBQYAAAAACgAKAIQCAACgIgAAAAA=";
 
-function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, setAssignments, push }) {
+function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, setAssignments, push, onNavigate }) {
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -2310,6 +2314,11 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
   );
   const errBuildings = buildingValidations.filter(({ v }) => v.errors.length > 0);
   const warnBuildings = buildingValidations.filter(({ v }) => v.errors.length === 0 && v.warnings.length > 0);
+  const buildingValidationMap = useMemo(() => {
+    const m = new Map();
+    buildingValidations.forEach(({ b, v }) => m.set(b.id, v));
+    return m;
+  }, [buildingValidations]);
   // Detect duplicate names (caught by validateBuilding as an error, but we surface a count too)
   const dupNames = useMemo(() => {
     const seen = {}; const dups = new Set();
@@ -2324,9 +2333,9 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
   // Filtered list for the table
   const filteredBuildings = useMemo(() => {
     let list = buildings;
-    if (issueFilter === 'errors') list = list.filter(b => buildingValidations.find(x => x.b.id === b.id)?.v.errors.length > 0);
+    if (issueFilter === 'errors') list = list.filter(b => (buildingValidationMap.get(b.id)?.errors.length || 0) > 0);
     else if (issueFilter === 'warnings') list = list.filter(b => {
-      const val = buildingValidations.find(x => x.b.id === b.id)?.v;
+      const val = buildingValidationMap.get(b.id);
       return val && val.errors.length === 0 && val.warnings.length > 0;
     });
     if (portfolioSearch.trim()) {
@@ -2339,7 +2348,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
       );
     }
     return list;
-  }, [buildings, buildingValidations, issueFilter, portfolioSearch]);
+  }, [buildings, buildingValidationMap, issueFilter, portfolioSearch]);
 
   return (
     <div style={{ padding: '32px 48px', maxWidth: 1300, margin: '0 auto' }}>
@@ -2362,6 +2371,16 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
         <p style={{ margin: '0 0 8px' }}>The optional retrofit fields (<code style={{ fontFamily: T.mono, fontSize: '0.9em', background: T.paper, border: '1px solid ' + T.border, borderRadius: 3, padding: '1px 4px' }}>heating_system</code>, <code style={{ fontFamily: T.mono, fontSize: '0.9em', background: T.paper, border: '1px solid ' + T.border, borderRadius: 3, padding: '1px 4px' }}>lighting_type</code>, <code style={{ fontFamily: T.mono, fontSize: '0.9em', background: T.paper, border: '1px solid ' + T.border, borderRadius: 3, padding: '1px 4px' }}>has_bms</code> etc.) improve retrofit modelling accuracy and unlock Smart select and incompatibility warnings in the Retrofits tab.</p>
         <p style={{ margin: 0, color: T.warmGrey }}>See the <strong>Guide</strong> tab → User guide for a full field reference and CSV template walkthrough.</p>
       </TabInfoAccordion>
+
+      {buildings.length > 0 && (
+        <div style={{ marginBottom: 24, padding: '14px 18px', background: '#f0faf4', border: '1px solid ' + T.forestSoft, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: T.forest, marginBottom: 2 }}>Portfolio ready — add energy data next</div>
+            <div style={{ fontFamily: T.body, fontSize: 13, color: T.forestSoft }}>Upload or paste monthly energy readings to unlock the Dashboard and CRREM analysis.</div>
+          </div>
+          <Button icon={ChevronRight} onClick={() => onNavigate?.('energy')} style={{ flexShrink: 0 }}>Go to Energy data</Button>
+        </div>
+      )}
 
       {buildings.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 24 }}>
@@ -2447,7 +2466,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
           {portfolioSearch && <button onClick={() => setPortfolioSearch('')} style={{ display: 'block', margin: '8px auto 0', fontFamily: T.body, fontSize: 13, color: T.forest, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear search</button>}
         </div>
       ) : (
-        <BuildingsTable buildings={filteredBuildings} allBuildings={buildings} buildingValidations={buildingValidations} onEdit={handleEdit} onDelete={(b) => setConfirmDelete(b)} />
+        <BuildingsTable buildings={filteredBuildings} allBuildings={buildings} buildingValidationMap={buildingValidationMap} onEdit={handleEdit} onDelete={(b) => setConfirmDelete(b)} />
       )}
 
       <BuildingForm open={open} onClose={() => setOpen(false)} onSave={handleSave} building={editing} allBuildings={buildings} />
@@ -2471,7 +2490,12 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
   );
 }
 
-function BuildingsTable({ buildings, allBuildings, buildingValidations, onEdit, onDelete }) {
+function BuildingsTable({ buildings, allBuildings, buildingValidationMap, onEdit, onDelete }) {
+  const PAGE = 50;
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [buildings]);
+  const totalPages = Math.max(1, Math.ceil(buildings.length / PAGE));
+  const pageBuildings = buildings.slice(page * PAGE, (page + 1) * PAGE);
   return (
     <div style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: '8px', overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: T.body, fontSize: 13 }}>
@@ -2487,15 +2511,15 @@ function BuildingsTable({ buildings, allBuildings, buildingValidations, onEdit, 
           </tr>
         </thead>
         <tbody>
-          {buildings.map((b, i) => {
-            const v = buildingValidations?.find(x => x.b.id === b.id)?.v ?? validateBuilding(b, allBuildings);
+          {pageBuildings.map((b, i) => {
+            const v = buildingValidationMap?.get(b.id) ?? validateBuilding(b, allBuildings);
             const hasError = v.errors.length > 0;
             const hasWarn = v.warnings.length > 0;
             const hasIssue = hasError || hasWarn;
             const rowBg = hasError ? '#fff8f8' : 'transparent';
             return (
               <tr key={b.id} style={{
-                borderBottom: i === buildings.length - 1 ? 'none' : '1px solid ' + T.borderSoft,
+                borderBottom: i === pageBuildings.length - 1 ? 'none' : '1px solid ' + T.borderSoft,
                 background: rowBg,
               }}>
                 <td style={{ padding: '14px 18px', maxWidth: 320 }}>
@@ -2556,6 +2580,20 @@ function BuildingsTable({ buildings, allBuildings, buildingValidations, onEdit, 
           })}
         </tbody>
       </table>
+      {buildings.length > PAGE && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid ' + T.border, background: T.paper }}>
+          <span style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey }}>
+            {page * PAGE + 1}–{Math.min((page + 1) * PAGE, buildings.length)} of {buildings.length} buildings
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setPage(0)} disabled={page === 0} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>«</button>
+            <button onClick={() => setPage(p => p - 1)} disabled={page === 0} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>‹ Prev</button>
+            <span style={{ padding: '4px 10px', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{page + 1} / {totalPages}</span>
+            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>Next ›</button>
+            <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>»</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2863,7 +2901,28 @@ function CurrencySettingsModal({ open, onClose, reportingCurrency, setReportingC
   );
 }
 
-function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, reportingCurrency, exchangeRates, push, startYear, setStartYear, startMonth, setStartMonth, endYear, setEndYear, endMonth, setEndMonth, onDirtyChange, saveRef, onNavigate }) {
+// A building <select> that only renders the currently-selected <option> until the
+// user opens it. With 500 buildings × ~150 visible selects across the three grids,
+// eagerly rendering every option produces ~75k DOM nodes and makes the tab slow to
+// mount. flushSync on pointer-down populates the full list synchronously, before
+// the native dropdown opens, so behaviour is unchanged.
+function LazyBuildingSelect({ value, buildings, onChange, style }) {
+  const [expanded, setExpanded] = useState(false);
+  const selected = value ? buildings.find(b => b.id === value) : null;
+  const expand = () => { if (!expanded) setExpanded(true); };
+  return (
+    <select value={value || ''} onChange={onChange}
+      onPointerDown={expand} onKeyDown={expand} onFocus={expand}
+      style={style}>
+      <option value="">— select —</option>
+      {expanded
+        ? buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)
+        : (selected && <option value={selected.id}>{selected.name}</option>)}
+    </select>
+  );
+}
+
+function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, reportingCurrency, exchangeRates, push, startYear, setStartYear, startMonth, setStartMonth, endYear, setEndYear, endMonth, setEndMonth, onDirtyChange, saveRef, onNavigate, getEnergyGridRows }) {
   // ── Date range — state lifted to App so it survives tab navigation ─────────
 
   const monthCols = useMemo(() => {
@@ -2879,9 +2938,9 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   // energyRows: { id, buildingId, fuel, cells:{key->val} }
   // occRows:    { id, buildingId, cells:{key->val} }
   // billRows:   { id, buildingId, fuel, currency, cells:{key->val} }
-  const [eRows, setERows] = useState([]);
-  const [oRows, setORows] = useState([]);
-  const [bRows, setBRows] = useState([]);
+  const [eRows, setERows] = useState(() => { const r = getEnergyGridRows?.(energy, bills, reportingCurrency); return r?.eRows ?? []; });
+  const [oRows, setORows] = useState(() => { const r = getEnergyGridRows?.(energy, bills, reportingCurrency); return r?.oRows ?? []; });
+  const [bRows, setBRows] = useState(() => { const r = getEnergyGridRows?.(energy, bills, reportingCurrency); return r?.bRows ?? []; });
   const [dirty, setDirty] = useState(false);
   // Notify parent whenever dirty changes so the tab-nav guard works
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty]);
@@ -2937,38 +2996,15 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const mutateO = useCallback((fn) => { pushHist(); setORows(prev => { const n = fn(prev); oRowsRef.current = n; setDirty(true); return n; }); }, [pushHist]);
   const mutateB = useCallback((fn) => { pushHist(); setBRows(prev => { const n = fn(prev); bRowsRef.current = n; setDirty(true); return n; }); }, [pushHist]);
 
-  // ── Load from energy + bills store ────────────────────────────────────────
+  // ── Sync from cache when energy/bills change externally (save, clear) ──────
+  // getEnergyGridRows is identity-cached so this is a near-no-op if refs unchanged.
   useEffect(() => {
-    if (dirty) return; // user has unsaved edits — don't overwrite their work
-    const eMap = {}, oMap = {};
-    energy.forEach(r => {
-      if (r.year && r.month) {
-        const mk = r.year + '-' + String(r.month).padStart(2,'0');
-        const ek = (r.buildingId||'') + '||' + (r.fuel||'');
-        if (!eMap[ek]) eMap[ek] = { id: uid(), buildingId: r.buildingId, fuel: r.fuel, cells: {} };
-        eMap[ek].cells[mk] = String(r.kwh ?? '');
-        if (r.occupancy != null && r.occupancy !== '') {
-          if (!oMap[r.buildingId]) oMap[r.buildingId] = { id: uid(), buildingId: r.buildingId, cells: {} };
-          if (!oMap[r.buildingId].cells[mk]) oMap[r.buildingId].cells[mk] = String(r.occupancy);
-        }
-      }
-    });
-    setERows(Object.values(eMap));
-    setORows(Object.values(oMap));
-
-    // Load bills
-    const bMap = {};
-    bills.forEach(r => {
-      if (r.year && r.month) {
-        const mk = r.year + '-' + String(r.month).padStart(2,'0');
-        const bk = (r.buildingId||'') + '||' + (r.fuel||'');
-        if (!bMap[bk]) bMap[bk] = { id: uid(), buildingId: r.buildingId, fuel: r.fuel, currency: r.currency || reportingCurrency, cells: {} };
-        bMap[bk].cells[mk] = String(r.cost ?? '');
-      }
-    });
-    setBRows(Object.values(bMap));
-    setDirty(false);
-  }, [bills, dirty]);
+    if (dirty) return;
+    const r = getEnergyGridRows?.(energy, bills, reportingCurrency);
+    setERows(r?.eRows ?? []);
+    setORows(r?.oRows ?? []);
+    setBRows(r?.bRows ?? []);
+  }, [energy, bills, dirty]);
 
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = () => {
@@ -3314,10 +3350,21 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   };
 
   // ── Live duplicate detection ─────────────────────────────────────────────────
+  // Deferred copies of row arrays: validation memos run against these, so they
+  // don't block the initial paint when loading large datasets.
+  const deferredERows = useDeferredValue(eRows);
+  const deferredORows = useDeferredValue(oRows);
+  const deferredBRows = useDeferredValue(bRows);
+
+  // O(1) lookups for validation memos — replaces per-row linear .find() scans
+  // that were O(rows × buildings) and noticeable with large datasets.
+  const bldgById = useMemo(() => { const m = new Map(); buildings.forEach(b => m.set(b.id, b)); return m; }, [buildings]);
+  const fuelByCode = useMemo(() => { const m = new Map(); fuels.forEach(f => m.set(f.code, f)); return m; }, [fuels]);
+
   const duplicateRows = useMemo(() => {
     const seen = new Map(); // key → first rowIdx
     const dups = []; // { label, rowIndices }
-    eRows.forEach((r, i) => {
+    deferredERows.forEach((r, i) => {
       const k = (r.buildingId || '') + '||' + (r.fuel || '');
       if (!r.buildingId && !r.fuel) return; // skip blank rows
       if (seen.has(k)) {
@@ -3331,18 +3378,18 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       } else { seen.set(k, i); }
     });
     return dups;
-  }, [eRows, buildings, fuels]);
+  }, [deferredERows, buildings, fuels]);
 
   // ── Per-row error/warning classification ──────────────────────────────────
   const eRowIssues = useMemo(() => {
     const dupRowSet = new Set(duplicateRows.flatMap(d => d.rowIndices));
-    return eRows.map((row, i) => {
+    return deferredERows.map((row, i) => {
       const errors = [];
       const warnings = [];
       if (!row.buildingId) errors.push('No building selected');
-      else if (!buildings.find(b => b.id === row.buildingId)) errors.push('Building not found in portfolio');
+      else if (!bldgById.has(row.buildingId)) errors.push('Building not found in portfolio');
       if (!row.fuel) errors.push('No fuel type selected');
-      else if (!fuels.find(f => f.code === row.fuel)) errors.push('Fuel not in fuel list');
+      else if (!fuelByCode.has(row.fuel)) errors.push('Fuel not in fuel list');
       const allBlank = row.cells && Object.keys(row.cells).length > 0
         ? Object.values(row.cells).every(v => v === '' || v == null)
         : true;
@@ -3350,16 +3397,16 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       if (dupRowSet.has(i) && !allBlank) warnings.push('Duplicate building / fuel combo');
       return { errors, warnings };
     });
-  }, [eRows, buildings, fuels, duplicateRows]);
+  }, [deferredERows, buildings, fuels, duplicateRows]);
 
   // Portfolio-level energy coverage issues
   const coverageIssues = useMemo(() => {
-    const bidsWithEnergy = new Set(eRows.map(r => r.buildingId).filter(Boolean));
-    const bidsWithOcc    = new Set(oRows.map(r => r.buildingId).filter(Boolean));
+    const bidsWithEnergy = new Set(deferredERows.map(r => r.buildingId).filter(Boolean));
+    const bidsWithOcc    = new Set(deferredORows.map(r => r.buildingId).filter(Boolean));
     const noEnergy  = buildings.filter(b => !bidsWithEnergy.has(b.id));
     const noOcc     = buildings.filter(b => bidsWithEnergy.has(b.id) && !bidsWithOcc.has(b.id));
     return { noEnergy, noOcc };
-  }, [buildings, eRows, oRows]);
+  }, [buildings, deferredERows, deferredORows]);
 
   const eErrCount  = eRowIssues.filter(i => i.errors.length > 0).length;
   const eWarnCount = eRowIssues.filter(i => i.errors.length === 0 && i.warnings.length > 0).length;
@@ -3368,7 +3415,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const duplicateBillRows = useMemo(() => {
     const seen = new Map();
     const dups = [];
-    bRows.forEach((r, i) => {
+    deferredBRows.forEach((r, i) => {
       const k = (r.buildingId || '') + '||' + (r.fuel || '');
       if (!r.buildingId && !r.fuel) return;
       if (seen.has(k)) {
@@ -3382,18 +3429,18 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       } else { seen.set(k, i); }
     });
     return dups;
-  }, [bRows, buildings, fuels]);
+  }, [deferredBRows, buildings, fuels]);
 
   const bRowIssues = useMemo(() => {
     const dupRowSet = new Set(duplicateBillRows.flatMap(d => d.rowIndices));
-    return bRows.map((row, i) => {
-      const { errors, warnings } = validateBillRow(row, buildings);
+    return deferredBRows.map((row, i) => {
+      const { errors, warnings } = validateBillRow(row, bldgById);
       // don't flag empty rows as duplicates
       const isBillBlank = !row.buildingId && !row.fuel && !(row.cells && Object.keys(row.cells).length > 0);
       if (dupRowSet.has(i) && !isBillBlank) warnings.push('Duplicate building / fuel combo');
       return { errors, warnings: [...new Set(warnings)] };
     });
-  }, [bRows, buildings, fuels, duplicateBillRows]);
+  }, [deferredBRows, buildings, fuels, duplicateBillRows]);
 
   const bErrCount  = bRowIssues.filter(i => i.errors.length > 0).length;
   const bWarnCount = bRowIssues.filter(i => i.errors.length === 0 && i.warnings.length > 0).length;
@@ -3407,7 +3454,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     if (activeESearch) {
       const q = activeESearch.toLowerCase();
       indices = indices.filter(i => {
-        const b = buildings.find(x => x.id === eRows[i].buildingId);
+        const b = bldgById.get(eRows[i].buildingId);
         return (b?.name || '').toLowerCase().includes(q) || (eRows[i].buildingId || '').toLowerCase().includes(q);
       });
     }
@@ -3418,7 +3465,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const duplicateOccRows = useMemo(() => {
     const seen = new Map();
     const dups = [];
-    oRows.forEach((r, i) => {
+    deferredORows.forEach((r, i) => {
       if (!r.buildingId) return;
       if (seen.has(r.buildingId)) {
         const existing = dups.find(d => d.key === r.buildingId);
@@ -3428,15 +3475,15 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       } else { seen.set(r.buildingId, i); }
     });
     return dups;
-  }, [oRows, buildings]);
+  }, [deferredORows, buildings]);
 
   const oRowIssues = useMemo(() => {
     const dupRowSet = new Set(duplicateOccRows.flatMap(d => d.rowIndices));
-    return oRows.map((row, i) => {
+    return deferredORows.map((row, i) => {
       const errors = [];
       const warnings = [];
       if (!row.buildingId) errors.push('No building selected');
-      else if (!buildings.find(b => b.id === row.buildingId)) errors.push('Building not found in portfolio');
+      else if (!bldgById.has(row.buildingId)) errors.push('Building not found in portfolio');
       const allBlank0 = row.cells && Object.keys(row.cells).length > 0
         ? Object.values(row.cells).every(v => v === '' || v == null)
         : true;
@@ -3451,7 +3498,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       if (hasOutOfRange) errors.push('One or more values outside 0–100%');
       return { errors, warnings };
     });
-  }, [oRows, buildings, duplicateOccRows]);
+  }, [deferredORows, buildings, duplicateOccRows]);
 
   const oErrCount  = oRowIssues.filter(i => i.errors.length > 0).length;
   const oWarnCount = oRowIssues.filter(i => i.errors.length === 0 && i.warnings.length > 0).length;
@@ -3462,7 +3509,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     const activeOSearch = (globalSearch || oSearch).trim().toLowerCase();
     if (activeOSearch) {
       return oRows.map((_, i) => i).filter(i => {
-        const bName = (buildings.find(b => b.id === oRows[i]?.buildingId)?.name || oRows[i]?.buildingId || '').toLowerCase();
+        const bName = (bldgById.get(oRows[i]?.buildingId)?.name || oRows[i]?.buildingId || '').toLowerCase();
         return bName.includes(activeOSearch);
       });
     }
@@ -3919,6 +3966,16 @@ if (buildings.length===0) return (
         <p style={{ margin: 0, color: T.warmGrey }}>Paste directly from Excel — the grid accepts TSV clipboard content. <strong>Save changes</strong> must be clicked to persist edits.</p>
       </TabInfoAccordion>
 
+      {energy.length > 0 && (
+        <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0faf4', border: '1px solid ' + T.forestSoft, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: T.forest, marginBottom: 2 }}>Energy data ready — explore the Dashboard</div>
+            <div style={{ fontFamily: T.body, fontSize: 13, color: T.forestSoft }}>View carbon intensities, CRREM stranding risk, and benchmark your portfolio against the 1.5°C pathway.</div>
+          </div>
+          <Button icon={ChevronRight} onClick={() => onNavigate?.('dashboard')} style={{ flexShrink: 0 }}>Go to Dashboard</Button>
+        </div>
+      )}
+
       {/* Date range toolbar */}
       <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,background:'#fff',border:'1px solid '+T.border,borderRadius:'8px',padding:'10px 16px'}}>
         <span style={{fontFamily:T.body,fontSize:13,color:T.warmGrey,fontWeight:500,whiteSpace:'nowrap'}}>Date range</span>
@@ -4071,11 +4128,8 @@ if (buildings.length===0) return (
               return (
               <tr key={row.id} style={{background: rowBg, borderBottom:'1px solid '+T.borderSoft}}>
                 <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
-                  <select value={row.buildingId||''} onChange={e=>updateEMeta(rowIdx,{buildingId:e.target.value})}
-                    style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}}>
-                    <option value="">— select —</option>
-                    {buildings.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e=>updateEMeta(rowIdx,{buildingId:e.target.value})}
+                    style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}} />
                 </td>
                 <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,width:FUEL_W,minWidth:FUEL_W}}>
                   <select value={row.fuel||''} onChange={e=>updateEMeta(rowIdx,{fuel:e.target.value})}
@@ -4215,11 +4269,8 @@ if (buildings.length===0) return (
               return (
               <tr key={row.id} style={{background: rowBg, borderBottom:'1px solid '+T.borderSoft}}>
                 <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
-                  <select value={row.buildingId||''} onChange={e=>updateOMeta(rowIdx,{buildingId:e.target.value})}
-                    style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}}>
-                    <option value="">— select —</option>
-                    {buildings.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e=>updateOMeta(rowIdx,{buildingId:e.target.value})}
+                    style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}} />
                 </td>
                 {monthCols.map((col,colIdx)=>(
                   <DataCell key={col.key} tag="o" rowIdx={rowIdx} colIdx={colIdx}
@@ -4424,11 +4475,8 @@ if (buildings.length===0) return (
                       return (
                         <tr key={row.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: bIssue.errors.length > 0 ? T.errorBg : bIssue.warnings.length > 0 ? T.warningBg : '#fffdf5', borderLeft: bIssue.errors.length > 0 ? '3px solid ' + T.rose : bIssue.warnings.length > 0 ? '3px solid ' + T.amber : '3px solid transparent' }}>
                           <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: '#fffdf5', zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
-                            <select value={row.buildingId || ''} onChange={e => updateBMeta(rowIdx, { buildingId: e.target.value })}
-                              style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 13, color: T.ink, outline: 'none', cursor: 'pointer' }}>
-                              <option value="">— select —</option>
-                              {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                            </select>
+                            <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e => updateBMeta(rowIdx, { buildingId: e.target.value })}
+                              style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 13, color: T.ink, outline: 'none', cursor: 'pointer' }} />
                           </td>
                           <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border }}>
                             <select value={row.fuel || ''} onChange={e => updateBMeta(rowIdx, { fuel: e.target.value })}
@@ -7001,7 +7049,85 @@ const FUEL_COLORS = {
 };
 const FUEL_COLOR_DEFAULT = ['#8b5cf6','#ec4899','#6366f1','#84cc16','#06b6d4'];
 
-function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [], assignments = [], baseYear, setBaseYear, baseMonth, setBaseMonth, reportingCurrency = 'GBP', exchangeRates = {}, allLoaded = true, onNavigate, push, filterCountries, setFilterCountries, filterAssetClasses, setFilterAssetClasses, selectedIds, setSelectedIds }) {
+// Module-scope so React keeps a stable component identity. Defining these inside
+// DashboardTab would give them a new identity on every render, forcing React to
+// unmount and remount every chart's DOM subtree (all the recharts SVG) on every
+// filter change, toggle, or tab switch. Drag handlers are supplied via context so
+// the (many) call sites don't each need the handlers threaded through as props.
+const ChartCardDragContext = React.createContext(null);
+
+function StackToggleModule({ active, onToggle, label }) {
+  return (
+    <button onClick={onToggle} style={{
+      display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+      border: '1px solid ' + (active ? T.slate : T.border),
+      background: active ? T.slate : '#fff', borderRadius: 6,
+      cursor: 'pointer', fontFamily: T.mono, fontSize: 10, letterSpacing: '0.08em',
+      color: active ? '#fff' : T.warmGrey, textTransform: 'uppercase', flexShrink: 0,
+      transition: 'all 0.15s',
+    }}>
+      {label ? (active ? label : 'Total') : (active ? '100%' : 'Abs')}
+    </button>
+  );
+}
+
+function ChartCard({ title, subtitle, legend, children, panelId }) {
+  const drag = React.useContext(ChartCardDragContext) || {};
+  const { rowNodesRef, onChartDragOver, onChartDrop, onClearDrag, onDragStartPanel } = drag;
+  return (
+    <div
+      ref={node => { if (panelId && rowNodesRef) { if (node) rowNodesRef.current['chart:' + panelId] = node; else delete rowNodesRef.current['chart:' + panelId]; } }}
+      onDragOver={panelId && onChartDragOver ? (e) => onChartDragOver(e, panelId) : undefined}
+      onDrop={panelId && onChartDrop ? () => onChartDrop(panelId) : undefined}
+      onDragEnd={onClearDrag}
+      style={{
+        background: '#fff',
+        border: '1px solid ' + T.border,
+        borderRadius: 8, padding: '20px 24px',
+        opacity: 1,
+        outline: 'none',
+        outlineOffset: 2,
+        transition: 'border-color 0.15s, outline 0.15s, opacity 0.15s',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, minHeight: 56 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0, flex: 1 }}>
+          {panelId && (
+            <div
+              title="Drag to reorder"
+              draggable
+              onDragStart={(e) => { e.stopPropagation(); onDragStartPanel?.(panelId); }}
+              style={{ color: T.warmGreyLight, marginTop: 3, cursor: 'grab', flexShrink: 0, touchAction: 'none' }}
+            >
+              <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
+                <circle cx="3" cy="3" r="1.5"/><circle cx="7" cy="3" r="1.5"/>
+                <circle cx="3" cy="8" r="1.5"/><circle cx="7" cy="8" r="1.5"/>
+                <circle cx="3" cy="13" r="1.5"/><circle cx="7" cy="13" r="1.5"/>
+              </svg>
+            </div>
+          )}
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h2>
+            <p style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey, margin: 0 }}>{subtitle}</p>
+          </div>
+        </div>
+        {legend && <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 10, fontFamily: T.body, fontSize: 11, flexShrink: 0, marginLeft: 16 }}>{legend}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function LegendItem({ color, label, dashed }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ width: 20, height: 2, background: color, borderTop: dashed ? '2px dashed ' + color : undefined }} />
+      <span style={{ color: T.warmGrey }}>{label}</span>
+    </div>
+  );
+}
+
+function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofits = [], assignments = [], baseYear, setBaseYear, baseMonth, setBaseMonth, reportingCurrency = 'GBP', exchangeRates = {}, allLoaded = true, onNavigate, push, filterCountries, setFilterCountries, filterAssetClasses, setFilterAssetClasses, selectedIds, setSelectedIds }) {
   const now = new Date();
 
   // Debounce base period — heavy calc only runs 400 ms after user stops changing
@@ -7645,72 +7771,19 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
   // Shared tooltip style
   const ttStyle = { background: '#fff', border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12 };
 
-  const StackToggle = ({ active, onToggle, label }) => (
-    <button onClick={onToggle} style={{
-      display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
-      border: '1px solid ' + (active ? T.slate : T.border),
-      background: active ? T.slate : '#fff', borderRadius: 6,
-      cursor: 'pointer', fontFamily: T.mono, fontSize: 10, letterSpacing: '0.08em',
-      color: active ? '#fff' : T.warmGrey, textTransform: 'uppercase', flexShrink: 0,
-      transition: 'all 0.15s',
-    }}>
-      {label ? (active ? label : 'Total') : (active ? '100%' : 'Abs')}
-    </button>
-  );
+  const StackToggle = StackToggleModule;
 
-  const ChartCard = ({ title, subtitle, legend, children, panelId }) => {
-    return (
-      <div
-        ref={node => { if (panelId) { if (node) rowNodesRef.current['chart:' + panelId] = node; else delete rowNodesRef.current['chart:' + panelId]; } }}
-        onDragOver={panelId ? (e) => handleChartDragOver(e, panelId) : undefined}
-        onDrop={panelId ? () => handleDrop(panelId) : undefined}
-        onDragEnd={clearDrag}
-        style={{
-          background: '#fff',
-          border: '1px solid ' + T.border,
-          borderRadius: 8, padding: '20px 24px',
-          opacity: 1,
-          outline: 'none',
-          outlineOffset: 2,
-          transition: 'border-color 0.15s, outline 0.15s, opacity 0.15s',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, minHeight: 56 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0, flex: 1 }}>
-            {panelId && (
-              <div
-                title="Drag to reorder"
-                draggable
-                onDragStart={(e) => { e.stopPropagation(); handleDragStart(panelId); }}
-                style={{ color: T.warmGreyLight, marginTop: 3, cursor: 'grab', flexShrink: 0, touchAction: 'none' }}
-              >
-                <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
-                  <circle cx="3" cy="3" r="1.5"/><circle cx="7" cy="3" r="1.5"/>
-                  <circle cx="3" cy="8" r="1.5"/><circle cx="7" cy="8" r="1.5"/>
-                  <circle cx="3" cy="13" r="1.5"/><circle cx="7" cy="13" r="1.5"/>
-                </svg>
-              </div>
-            )}
-            <div style={{ minWidth: 0 }}>
-              <h2 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h2>
-              <p style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey, margin: 0 }}>{subtitle}</p>
-            </div>
-          </div>
-          {legend && <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 10, fontFamily: T.body, fontSize: 11, flexShrink: 0, marginLeft: 16 }}>{legend}</div>}
-        </div>
-        {children}
-      </div>
-    );
+  // Stable handlers bundled for the module-scope ChartCard via context.
+  const dragApi = {
+    rowNodesRef,
+    onChartDragOver: handleChartDragOver,
+    onChartDrop: handleDrop,
+    onClearDrag: clearDrag,
+    onDragStartPanel: handleDragStart,
   };
 
-  const LegendItem = ({ color, label, dashed }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <div style={{ width: 20, height: 2, background: color, borderTop: dashed ? '2px dashed ' + color : undefined }} />
-      <span style={{ color: T.warmGrey }}>{label}</span>
-    </div>
-  );
-
   return (
+    <ChartCardDragContext.Provider value={dragApi}>
     <div style={{ padding: '32px 48px', maxWidth: 1400, margin: '0 auto' }}>
       <PageHeader
         title="Dashboard"
@@ -8613,7 +8686,7 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
                 <div style={{ padding: '14px 20px', borderBottom: '1px solid ' + T.border, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <h2 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 2px' }}>Building breakdown</h2>
-                    <p style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, margin: 0 }}>Values shown for {refYear}{tableRows.length !== filteredBuildings.length ? ' · ' + tableRows.length + ' of ' + filteredBuildings.length + ' shown' : ''}</p>
+                    <p style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, margin: 0 }}>Values shown for {refYear}{tableRows.length !== filteredBuildings.length ? ' · ' + tableRows.length + ' of ' + filteredBuildings.length + ' shown' : ''} · <span style={{ color: T.warmGreyLight }}>Click a row to focus</span></p>
                   </div>
                   {(activeFilters || tableSort.col) && (
                     <button onClick={clearTableFilters}
@@ -8668,10 +8741,25 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
                       const isStranded = dispBStrand === refYear;
                       const isOnTrack  = !isStranded && dispBCI != null && pw != null && dispBCI <= pw;
                       return (
-                        <tr key={b.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: isStranded ? '#fff8f8' : 'transparent' }}>
-                          <td style={{ padding: '12px 14px', color: T.ink, fontWeight: 500 }}>
+                        <tr key={b.id}
+                          onClick={() => {
+                            if (focusedBuildingId === b.id) {
+                              setFocusedBuildingId(null); setSelectedIds(null);
+                            } else {
+                              setFocusedBuildingId(b.id); setSelectedIds(new Set([b.id]));
+                            }
+                          }}
+                          style={{ borderBottom: '1px solid ' + T.borderSoft, cursor: 'pointer',
+                            background: focusedBuildingId === b.id ? '#f0faf4' : isStranded ? '#fff8f8' : 'transparent',
+                            outline: focusedBuildingId === b.id ? '2px solid ' + T.forestSoft : 'none',
+                            outlineOffset: -2,
+                          }}>
+                          <td title={focusedBuildingId === b.id ? 'Click to deselect' : 'Click to focus dashboard on this building'} style={{ padding: '12px 14px', color: T.ink, fontWeight: 500 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               {b.name}
+                              {focusedBuildingId === b.id && (
+                                <span style={{ fontFamily: T.mono, fontSize: 9, background: '#dcfce7', color: T.forest, padding: '2px 6px', borderRadius: 10, border: '1px solid ' + T.forestSoft }}>focused</span>
+                              )}
                               {missingUserBillsBids_t.has(b.id) && (
                                 <span title="Utility costs inferred from reference tariffs" style={{ fontFamily: T.mono, fontSize: 9, background: T.amberBg, color: T.amberText, padding: '2px 6px', borderRadius: 10, border: '1px solid ' + T.amberSoft, cursor: 'help' }}>est. costs</span>
                               )}
@@ -8845,8 +8933,14 @@ function DashboardTab({ buildings, energy, bills = [], fuels, efs, retrofits = [
         </div>
       </Modal>
     </div>
+    </ChartCardDragContext.Provider>
   );
 }
+
+// Memoized so a tab switch (which re-renders App) doesn't re-render the entire
+// dashboard — it stays mounted under display:none and only re-renders when its
+// own data/filter props actually change.
+const DashboardTab = React.memo(DashboardTabInner);
 
 
 
@@ -9844,7 +9938,7 @@ function extractHeadings(text) {
     });
 }
 
-function GuideTab({ activeSection, onSectionChange }) {
+function GuideTabInner({ activeSection, onSectionChange }) {
   const [activeHeading, setActiveHeading] = useState('');
   // One ref per section — each keeps its own independent scroll position
   const contentRefs = useRef({ guide: null, methodology: null });
@@ -10024,6 +10118,9 @@ function GuideTab({ activeSection, onSectionChange }) {
     </div>
   );
 }
+
+// Always mounted under display:none — memoize so tab switches don't re-render it.
+const GuideTab = React.memo(GuideTabInner);
 
 // Export / Import button cluster for retrofits & assignments
 function RetrofitDataButtons({ retrofits, setRetrofits, assignments, setAssignments, buildings, allMeasures, push }) {
@@ -11126,11 +11223,14 @@ export default function App() {
   const [guideSection, setGuideSection] = useState('guide'); // persists across tab switches
   // Save/restore scroll position per tab so navigating back lands where you left
   const tabScrollPos = useRef({});
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
   const navigateTo = useCallback((tabId) => {
-    if (tabId === activeTab) return;
-    tabScrollPos.current[activeTab] = window.scrollY;
+    const current = activeTabRef.current;
+    if (tabId === current) return;
+    tabScrollPos.current[current] = window.scrollY;
     setActiveTab(tabId);
-  }, [activeTab]);
+  }, []);
 
   // Restore scroll position whenever activeTab changes. Uses polling because
   // Dashboard async-renders content over hundreds of ms — a single RAF is too
@@ -11176,6 +11276,43 @@ export default function App() {
   const [efs,    setEfs,    efsLoaded]    = useStorage(STORAGE_KEYS.efs,    {});
   const [retrofits,   setRetrofits,   retrofitsLoaded]   = useStorage(STORAGE_KEYS.retrofits,  []);
   const [assignments, setAssignments, assignmentsLoaded] = useStorage(STORAGE_KEYS.assignments, []);
+
+  // Cache the grid-row transform keyed by object identity of energy/bills.
+  // A ref-based cache means: (a) zero cost on App re-renders where energy/bills
+  // haven't changed, and (b) the transform only runs when EnergyTab actually
+  // mounts and calls getEnergyGridRows — not synchronously during App render.
+  const energyRowCacheRef = useRef({ energyRef: null, billsRef: null, result: null });
+  const getEnergyGridRows = useCallback((eng, bls, repCurrency) => {
+    const cache = energyRowCacheRef.current;
+    if (cache.energyRef === eng && cache.billsRef === bls) return cache.result;
+    const eMap = {}, oMap = {};
+    eng.forEach(r => {
+      if (!r.year || !r.month) return;
+      const mk = r.year + '-' + String(r.month).padStart(2, '0');
+      const ek = (r.buildingId || '') + '||' + (r.fuel || '');
+      if (!eMap[ek]) eMap[ek] = { id: uid(), buildingId: r.buildingId, fuel: r.fuel, cells: {} };
+      eMap[ek].cells[mk] = String(r.kwh ?? '');
+      if (r.occupancy != null && r.occupancy !== '') {
+        if (!oMap[r.buildingId]) oMap[r.buildingId] = { id: uid(), buildingId: r.buildingId, cells: {} };
+        if (!oMap[r.buildingId].cells[mk]) oMap[r.buildingId].cells[mk] = String(r.occupancy);
+      }
+    });
+    const bMap = {};
+    bls.forEach(r => {
+      if (!r.year || !r.month) return;
+      const mk = r.year + '-' + String(r.month).padStart(2, '0');
+      const bk = (r.buildingId || '') + '||' + (r.fuel || '');
+      if (!bMap[bk]) bMap[bk] = { id: uid(), buildingId: r.buildingId, fuel: r.fuel, currency: r.currency || repCurrency, cells: {} };
+      bMap[bk].cells[mk] = String(r.cost ?? '');
+    });
+    const result = {
+      eRows: Object.values(eMap),
+      oRows: Object.values(oMap),
+      bRows: Object.values(bMap),
+    };
+    energyRowCacheRef.current = { energyRef: eng, billsRef: bls, result };
+    return result;
+  }, []);
   // Shared filter state — persisted across Dashboard ↔ Retrofits navigation
   const [sharedFilterCountries,    setSharedFilterCountries]    = useState(new Set());
   const [sharedFilterAssetClasses, setSharedFilterAssetClasses] = useState(new Set());
@@ -11350,9 +11487,9 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} />}
-      {activeTab === 'portfolio' && <PortfolioTab buildings={buildings} setBuildings={setBuildings} energy={energy} setEnergy={setEnergy} setBills={setBills} setAssignments={setAssignments} push={push} />}
-      {activeTab === 'energy' && <EnergyTab buildings={buildings} energy={energy} setEnergy={setEnergy} bills={bills} setBills={setBills} fuels={fuels} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} push={push} startYear={energyStartYear} setStartYear={setEnergyStartYear} startMonth={energyStartMonth} setStartMonth={setEnergyStartMonth} endYear={energyEndYear} setEndYear={setEnergyEndYear} endMonth={energyEndMonth} setEndMonth={setEnergyEndMonth} onDirtyChange={setEnergyDirty} saveRef={energySaveRef} onNavigate={navigateTo} />}
+      {activeTab === 'overview' && <OverviewTab buildings={buildings} energy={energy} onNavigate={navigateTo} setBuildings={setBuildings} setEnergy={setEnergy} setBills={setBills} setFuels={setFuels} setEfs={setEfs} setRetrofits={setRetrofits} setAssignments={setAssignments} push={push} onSampleLoad={() => navigateTo('dashboard')} />}
+      {activeTab === 'portfolio' && <PortfolioTab buildings={buildings} setBuildings={setBuildings} energy={energy} setEnergy={setEnergy} setBills={setBills} setAssignments={setAssignments} push={push} onNavigate={navigateTo} />}
+      {activeTab === 'energy' && <EnergyTab buildings={buildings} energy={energy} setEnergy={setEnergy} bills={bills} setBills={setBills} fuels={fuels} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} push={push} startYear={energyStartYear} setStartYear={setEnergyStartYear} startMonth={energyStartMonth} setStartMonth={setEnergyStartMonth} endYear={energyEndYear} setEndYear={setEnergyEndYear} endMonth={energyEndMonth} setEndMonth={setEnergyEndMonth} onDirtyChange={setEnergyDirty} saveRef={energySaveRef} onNavigate={navigateTo} getEnergyGridRows={getEnergyGridRows} />}
       {activeTab === 'factors' && <FactorsTab fuels={fuels} setFuels={setFuels} efs={efs} setEfs={setEfs} electricityEfs={electricityEfs} setElectricityEfs={setElectricityEfs} push={push} />}
       <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}><DashboardTab buildings={buildings} energy={energy} bills={bills} fuels={fuels} efs={efs} retrofits={retrofits} assignments={assignments} baseYear={baseYear} setBaseYear={setBaseYear} baseMonth={baseMonth} setBaseMonth={setBaseMonth} reportingCurrency={reportingCurrency} exchangeRates={exchangeRates} allLoaded={allLoaded} onNavigate={navigateTo} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} /></div>
       {activeTab === 'retrofits' && <RetrofitsTab buildings={buildings} energy={energy} fuels={fuels} efs={efs} retrofits={retrofits} setRetrofits={setRetrofits} assignments={assignments} setAssignments={setAssignments} baseYear={baseYear} baseMonth={baseMonth} push={push} filterCountries={sharedFilterCountries} setFilterCountries={setSharedFilterCountries} filterAssetClasses={sharedFilterAssetClasses} setFilterAssetClasses={setSharedFilterAssetClasses} selectedIds={sharedSelectedIds} setSelectedIds={setSharedSelectedIds} onNavigate={navigateTo} />}
