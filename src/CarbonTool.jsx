@@ -7200,7 +7200,12 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
     return true;
   }), [buildings, filterCountries, filterAssetClasses, selectedIds, focusedBuildingId]);
 
-  const portfolio = useMemo(() => calcPortfolioResult(buildingResults, filteredBuildings), [buildingResults, filteredBuildings]);
+  // Deferred: the heavy portfolio/chart recompute runs in the background so the
+  // filter UI (pills, building count) responds in the same frame, charts catch up.
+  const deferredFilteredBuildings = useDeferredValue(filteredBuildings);
+  const isFilterPending = filteredBuildings !== deferredFilteredBuildings;
+
+  const portfolio = useMemo(() => calcPortfolioResult(buildingResults, deferredFilteredBuildings), [buildingResults, deferredFilteredBuildings]);
 
   // Fuel colour helper
   const fuelColor = (code, idx) => FUEL_COLORS[code] || FUEL_COLOR_DEFAULT[idx % FUEL_COLOR_DEFAULT.length];
@@ -7334,21 +7339,39 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
     return [...bills, ...inferred];
   }, [bills, energy, buildings]);
 
+  // Pre-index by building id so filter-path memos don't scan all 15k/17k rows.
+  const billsByBuildingId = useMemo(() => {
+    const m = new Map();
+    effectiveBills.forEach(b => {
+      if (!m.has(b.buildingId)) m.set(b.buildingId, []);
+      m.get(b.buildingId).push(b);
+    });
+    return m;
+  }, [effectiveBills]);
+
+  const energyByBuildingId = useMemo(() => {
+    const m = new Map();
+    energy.forEach(r => {
+      if (!m.has(r.buildingId)) m.set(r.buildingId, []);
+      m.get(r.buildingId).push(r);
+    });
+    return m;
+  }, [energy]);
+
   const billsBldgChartData = useMemo(() => {
-    if (!effectiveBills || effectiveBills.length === 0 || !filteredBuildings) return [];
-    const filteredBids = new Set(filteredBuildings.map(b => b.id));
-    // Prefer a year that has actual (non-inferred) bills; fall back to firstDataYear
-    const userBillYears = [...new Set(effectiveBills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
+    if (!effectiveBills.length || !deferredFilteredBuildings.length) return [];
+    const filteredBills = deferredFilteredBuildings.flatMap(b => billsByBuildingId.get(b.id) || []);
+    const userBillYears = [...new Set(filteredBills.filter(b => !b.inferred).map(b => b.year))].sort();
     const billYear = userBillYears.length > 0 ? userBillYears[0] : firstDataYear;
     const toRate = exchangeRates[reportingCurrency] || 1;
     const costByBldg = {};
-    effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).forEach(b => {
+    filteredBills.filter(b => b.year === billYear && b.cost > 0).forEach(b => {
       const fromRate = exchangeRates[b.currency || reportingCurrency] || 1;
       if (!costByBldg[b.buildingId]) costByBldg[b.buildingId] = { total: 0, inferred: true };
       costByBldg[b.buildingId].total += (b.cost || 0) * (fromRate / toRate);
       if (!b.inferred) costByBldg[b.buildingId].inferred = false;
     });
-    return filteredBuildings
+    return deferredFilteredBuildings
       .filter(b => costByBldg[b.id])
       .map(b => ({
         id: b.id,
@@ -7359,18 +7382,18 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
         billYear,
       }))
       .sort((a, b) => b.cost - a.cost);
-  }, [effectiveBills, filteredBuildings, firstDataYear, reportingCurrency, exchangeRates]);
+  }, [billsByBuildingId, deferredFilteredBuildings, firstDataYear, reportingCurrency, exchangeRates]);
 
-  // Bills by fuel chart data — annual cost per fuel across filtered portfolio
   const billsFuelChartData = useMemo(() => {
-    if (!effectiveBills || effectiveBills.length === 0 || !filteredBuildings) return [];
-    const filteredBids = new Set(filteredBuildings.map(b => b.id));
-    const userBillYears = [...new Set(effectiveBills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
+    if (!effectiveBills.length || !deferredFilteredBuildings.length) return [];
+    const filteredBills = deferredFilteredBuildings.flatMap(b => billsByBuildingId.get(b.id) || []);
+    const userBillYears = [...new Set(filteredBills.filter(b => !b.inferred).map(b => b.year))].sort();
     const billYear = userBillYears.length > 0 ? userBillYears[0] : firstDataYear;
     const toRate = exchangeRates[reportingCurrency] || 1;
+    const yearBills = filteredBills.filter(b => b.year === billYear && b.cost > 0);
+    const allInferred = yearBills.length > 0 && yearBills.every(b => b.inferred);
     const costByFuel = {};
-    const allInferred = effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).every(b => b.inferred);
-    effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0).forEach(b => {
+    yearBills.forEach(b => {
       const fromRate = exchangeRates[b.currency || reportingCurrency] || 1;
       const fc = b.fuel || 'unknown';
       if (!costByFuel[fc]) costByFuel[fc] = 0;
@@ -7385,7 +7408,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
         inferred: allInferred,
       }))
       .sort((a, b) => b.cost - a.cost);
-  }, [effectiveBills, filteredBuildings, firstDataYear, reportingCurrency, exchangeRates, fuels]);
+  }, [billsByBuildingId, deferredFilteredBuildings, firstDataYear, reportingCurrency, exchangeRates, fuels]);
   // Toggle states for per-m² building charts
   const [emissionsPerM2, setEmissionsPerM2] = useState(false);
   const [energyPerM2, setEnergyPerM2] = useState(false);
@@ -7655,20 +7678,18 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
   // Raw metered energy — sum of actual kWh from the energy array for the base year
   // across filtered buildings (not occupancy-normalised, not projected).
   const portRawKwh = useMemo(() => {
-    const filteredBids = new Set(filteredBuildings.map(b => b.id));
-    // Raw metered energy only exists for historical periods — always use firstDataYear
     const yr = firstDataYear;
     let total = 0;
     let found = false;
-    energy.forEach(r => {
-      if (r.year !== yr) return;
-      if (!filteredBids.has(r.buildingId)) return;
-      if (!r.fuel || r.fuel === 'occupancy') return;
-      total += parseFloat(r.kwh) || 0;
-      found = true;
-    });
+    for (const b of deferredFilteredBuildings) {
+      for (const r of (energyByBuildingId.get(b.id) || [])) {
+        if (r.year !== yr || !r.fuel || r.fuel === 'occupancy') continue;
+        total += parseFloat(r.kwh) || 0;
+        found = true;
+      }
+    }
     return found ? total : null;
-  }, [energy, filteredBuildings, refYear]);
+  }, [energyByBuildingId, deferredFilteredBuildings, firstDataYear]);
   const portPathway   = portfolio?.pathway_t[refYear];
   const portEI        = portfolio?.ei_t?.[refYear] ?? null;
   const portEIPathway = portfolio?.ei_pathway_t?.[refYear] ?? null;
@@ -7690,17 +7711,17 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
   const deltaC     = showDelta ? deltaPct(portCRetro,  portC)     : null;
   const deltaEI    = showDelta ? deltaPct(portEIRetro, portEI)    : null;
 
-  const validBldgs    = filteredBuildings.filter(b => buildingResults[b.id]?.hasEnergy);
+  const validBldgs    = deferredFilteredBuildings.filter(b => buildingResults[b.id]?.hasEnergy);
   const noBuildingMsg = buildings.length === 0 ? 'no_buildings' : energy.length === 0 ? 'no_energy' : validBldgs.length === 0 ? 'no_match' : null;
 
   // Annual utility cost: bills only exist for metered periods.
   // When refYear > firstDataYear, fall back to firstDataYear bills and flag as historical.
   const annualCostSummary = useMemo(() => {
-    if (!effectiveBills || effectiveBills.length === 0) return null;
-    const filteredBids = new Set(filteredBuildings.map(b => b.id));
-    const userBillYears = [...new Set(effectiveBills.filter(b => !b.inferred && filteredBids.has(b.buildingId)).map(b => b.year))].sort();
+    if (!effectiveBills.length) return null;
+    const filteredBills = deferredFilteredBuildings.flatMap(b => billsByBuildingId.get(b.id) || []);
+    const userBillYears = [...new Set(filteredBills.filter(b => !b.inferred).map(b => b.year))].sort();
     const billYear = userBillYears.length > 0 ? userBillYears[0] : firstDataYear;
-    let yearBills = effectiveBills.filter(b => b.year === billYear && filteredBids.has(b.buildingId) && b.cost > 0);
+    let yearBills = filteredBills.filter(b => b.year === billYear && b.cost > 0);
     const isFallback = refYear !== firstDataYear; // cost is always base-year derived
     if (yearBills.length === 0) return null;
     const anyInferred = yearBills.every(b => b.inferred); // true only when NO actual bills uploaded
@@ -7753,7 +7774,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
       isFallback,
       isRetroScaled: useRetro,
     };
-  }, [effectiveBills, filteredBuildings, refYear, firstDataYear, reportingCurrency, exchangeRates, showRetrofit, portfolioHasRetrofits, buildingResults]);
+  }, [billsByBuildingId, deferredFilteredBuildings, refYear, firstDataYear, reportingCurrency, exchangeRates, showRetrofit, portfolioHasRetrofits, buildingResults]);
   const deltaCost = showDelta && annualCostSummary?.isRetroScaled
     ? deltaPct(annualCostSummary.total, annualCostSummary.bauTotal) : null;
 
@@ -8130,7 +8151,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
           action={<Button variant="secondary" icon={Settings} onClick={() => setComposeOpen(true)}>Open Composer</Button>}
         />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start', transition: 'opacity 0.15s', opacity: isFilterPending ? 0.6 : 1 }}>
           {orderedPanels.map(panelId => <React.Fragment key={panelId}>
           {panelId === 'kpi' && <div style={{ gridColumn: 'span 2' }}>{/* ── PANEL: kpi ── */}
           {/* ── PANEL: kpi ── */}
@@ -8239,7 +8260,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
             buildings={buildings}
             buildingResults={buildingResults}
             firstDataYear={refYear}
-            filteredBuildings={filteredBuildings}
+            filteredBuildings={deferredFilteredBuildings}
             bills={bills}
             reportingCurrency={reportingCurrency}
             exchangeRates={exchangeRates}
@@ -8588,7 +8609,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
             ];
 
             // Build rows
-            const rawRows = filteredBuildings.map(b => {
+            const rawRows = deferredFilteredBuildings.map(b => {
               const res = buildingResults[b.id];
               const ci = res?.baseCI ?? null;
               const pw = res?.basePathway ?? null;
