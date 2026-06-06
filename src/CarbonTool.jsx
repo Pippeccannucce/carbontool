@@ -201,7 +201,7 @@ kx7eedtj,Utrecht Health Centre,"26 Oudkerkhof, Utrecht",NL,17560,HEC,100,D,0.1,d
 snujza7t,65 Seville Tower,"190 Calle Alcalá, Seville",ES,11180,OFF,100,G,0.8,gas_boiler,single,fluorescent,true,false,false,false,false,false,false,0,1677
 wd8il3fb,19-8 157 Strøget,"157 Strøget, Aalborg",DK,1790,RMF,100,E,0.5,heat_pump_ground,single,mixed,false,false,false,true,false,true,false,0,179
 4j1ripzi,43 229 Mill Lane,"14 Mosley Street, Manchester",UK,2940,RHS,100,B,0.4,gas_boiler,double,mixed,false,false,false,false,false,false,false,0,735
-479t6vxd,The 222 Ringstraße Store,"222 Ringstraße, Hamburg",DE,1440,RHS,50,C,0.5,gas_boiler,low_e,led,true,false,true,false,true,true,false,0,252
+479t6vxd,The 222 Ringstraße Store,"18 Mönckebergstraße, Hamburg",DE,1440,RHS,50,C,0.5,gas_boiler,low_e,led,true,false,true,false,true,true,false,0,252
 479t6vxd,The 222 Ringstraße Store,"222 Ringstraße, Hamburg",DE,1440,RMF,50,C,0.5,gas_boiler,low_e,led,true,false,true,false,true,true,false,0,252
 lu7u6n7h,Utrecht Cold Store,"42 Lange Viestraat, Utrecht",NL,10935,DWC,100,E,0.8,gas_boiler,single,fluorescent,false,true,false,false,false,false,false,0,6561
 71q3vli7,46 116 Station Road,"116 Station Road, Liverpool",UK,2955,RMF,100,A,0.5,heat_pump_air,triple,led,false,false,false,false,true,false,false,0,296
@@ -279,7 +279,7 @@ dximyn4u,43 14 Strøget Retail Park,"14 Strøget, Aarhus",DK,18245,RWB,100,F,0.2
 s7gu0env,130 Kungsgatan Medical Practice,"18 Kungsängsgatan, Uppsala",SE,9135,HEC,100,C,0.5,district_heating,double,fluorescent,false,false,false,false,false,false,false,0,1827
 4k43safy,The 193 Church Lane Building,"26 Stokes Croft, Bristol",UK,1315,OFF,100,E,0.5,oil_boiler,single,mixed,true,false,false,false,false,false,false,0,197
 v18kgygg,91 97 Rue de la République,"97 Rue de la République, Lille",FR,760,RHS,100,D,0.5,gas_boiler,single,fluorescent,false,false,false,false,false,true,false,0,190
-u1xemix7,Glasgow Leisure Centre,"11 Market Place, Glasgow",UK,6820,LEI,100,C,0.5,gas_boiler,single,mixed,false,true,false,false,false,false,false,0,1364
+u1xemix7,Glasgow Leisure Centre,"28 Buchanan Street, Glasgow",UK,6820,LEI,100,C,0.5,gas_boiler,single,mixed,false,true,false,false,false,false,false,0,1364
 db2uuijn,46 111 Damrak Office,"111 Damrak, Amsterdam",NL,395,OFF,100,D,0.8,district_heating,double,fluorescent,true,false,true,false,true,true,false,0,59
 otdh00h6,Antwerp Distribution Centre,"18 De Keyserlei, Antwerp",BE,8365,DWW,100,B,0.9,gas_boiler,triple,led,false,false,true,false,false,false,true,0,5019
 ylrq1rdx,75 72 Church Lane,"14 Chapel Bar, Nottingham",UK,380,RSF,100,B,0.2,heat_pump_air,low_e,led,false,true,true,false,true,true,false,26,38
@@ -296,7 +296,7 @@ tiqwnrhz,"Block E, 219 Kirchgasse","219 Kirchgasse, Cologne",DE,4915,RMF,100,D,0
 3momyvux,The 81 Nantes,"12 Rue du Commerce, Nantes",FR,7820,HOT,100,F,0.5,gas_boiler,double,incandescent,true,false,false,false,true,true,false,0,782
 hod7rb1s,81 27 Nørrebrogade,"27 Nørrebrogade, Esbjerg",DK,7455,RMF,100,C,0.4,district_heating,double,fluorescent,false,false,true,false,false,true,false,0,746
 jka34mqa,53 243 Aleja Jerozolimska,"48 Ulica Piotrkowska, Łódź",PL,3370,RHS,50,C,0.4,gas_boiler,low_e,mixed,false,false,false,false,true,true,true,0,590
-jka34mqa,53 243 Aleja Jerozolimska,"243 Aleja Jerozolimska, Łódź",PL,3370,RMF,50,C,0.4,gas_boiler,low_e,mixed,false,false,false,false,true,true,true,0,590
+jka34mqa,53 243 Aleja Jerozolimska,"24 Ulica Tuwima, Lodz",PL,3370,RMF,50,C,0.4,gas_boiler,low_e,mixed,false,false,false,false,true,true,true,0,590
 btgdjz0i,61 127 Station Road Cold Hub,"127 Station Road, Leeds",UK,35660,DWC,100,,0.6,gas_boiler,double,fluorescent,true,true,false,false,false,false,true,0,21396
 9ryllwb7,Toulouse Hospital Annex,"24 Rue d'Alsace-Lorraine, Toulouse",FR,8135,HEC,100,,0.4,heat_pump_air,double,fluorescent,true,false,false,false,true,false,false,0,1627
 60an0jbz,68 Strasbourg Tower,"14 Rue du Vieux-Marché-aux-Vins, Strasbourg",FR,5995,OFF,100,C,0.6,heat_pump_air,double,mixed,false,false,false,false,false,false,false,0,899
@@ -306,13 +306,13 @@ pd2tsxtv,232 Ulica Floriańska Retail Park,"15 Ulica Święty Marcin, Poznań",P
 koecubod,The 79 Marseille,"28 Rue de Rome, Marseille",FR,3745,HOT,100,D,0.9,heat_pump_air,single,mixed,false,false,false,false,false,false,false,0,374
 b8753aye,Units at 6 Marktplatz,"6 Marktplatz, Frankfurt",DE,2340,RHS,100,D,0.5,gas_boiler,low_e,led,true,false,true,false,false,true,false,0,585
 vdh8uzb7,Cambridge Shopping Centre,"126 Victoria Street, Cambridge",UK,28060,RSM,100,C,0.5,gas_boiler,double,led,false,false,true,false,false,true,true,0,9821
-66p61xuf,137 Kings Road Medical Practice,"137 Kings Road, Birmingham",UK,1965,HEC,100,E,0.5,gas_boiler,double,fluorescent,false,false,false,false,true,false,false,0,393
-78iyhhg8,Stuttgart Hospital Annex,"158 Ringstraße, Stuttgart",DE,15010,HEC,100,C,0.1,gas_boiler,double,mixed,false,false,false,false,true,true,false,0,3002
+66p61xuf,137 Kings Road Medical Practice,"22 New Street, Birmingham",UK,1965,HEC,100,E,0.5,gas_boiler,double,fluorescent,false,false,false,false,true,false,false,0,393
+78iyhhg8,Stuttgart Hospital Annex,"22 Königstraße, Stuttgart",DE,15010,HEC,100,C,0.1,gas_boiler,double,mixed,false,false,false,false,true,true,false,0,3002
 0e27zeoq,Two 152 Station Road,"22 Bold Street, Liverpool",UK,11635,OFF,50,D,0.3,gas_boiler,double,fluorescent,true,true,true,false,false,true,false,367,1454
 0e27zeoq,Two 152 Station Road,"152 Station Road, Liverpool",UK,11635,RMF,50,D,0.3,gas_boiler,double,fluorescent,true,true,true,false,false,true,false,367,1454
 jq4ta5iv,Two 105 Place du Marché,"12 Rue d'Algérie, Lyon",FR,14755,OFF,100,D,0.8,gas_boiler,double,mixed,false,false,false,false,false,false,false,0,2213
 cqe4lohh,74E 147 Mill Lane,"28 King Street, Manchester",UK,420,RSF,100,C,0.8,gas_boiler,double,fluorescent,false,false,false,false,true,false,false,0,42
-kt1elou8,Ghent Hotel,"50 Meir, Ghent",BE,8275,HOT,100,E,0.9,gas_boiler,single,mixed,false,false,true,false,true,true,false,0,828
+kt1elou8,Ghent Hotel,"18 Veldstraat, Ghent",BE,8275,HOT,100,E,0.9,gas_boiler,single,mixed,false,false,true,false,true,true,false,0,828
 l4zjd5n3,Birmingham Cold Store,"26 Temple Row, Birmingham",UK,16245,DWC,100,F,0.6,gas_boiler,single,fluorescent,true,true,false,false,true,false,false,1429,9747
 7yvdqbsx,148 Park Avenue Retail Park,"11 Woodstock Road, Oxford",UK,17620,RSM,100,C,0.7,gas_boiler,double,led,true,false,false,false,true,true,true,0,6167
 qmlh13c7,Barcelona Hospital Annex,"146 Gran Vía, Barcelona",ES,16345,HEC,100,B,0.5,heat_pump_air,double,fluorescent,true,false,true,false,true,false,false,0,3269
@@ -348,16 +348,16 @@ m9lbb4m0,Two 229 Market Place,"229 Market Place, Glasgow",UK,6155,RMF,50,C,0.1,g
 8hw9c4hj,147 Victoria Street Sports Club,"147 Victoria Street, Edinburgh",UK,9975,LEI,100,B,0.5,oil_boiler,double,fluorescent,false,true,false,false,true,false,false,0,1995
 puwsnffy,112 Victoria Street Medical Practice,"112 Victoria Street, Leeds",UK,7670,HEC,100,F,0.5,gas_boiler,double,mixed,false,true,false,false,false,false,false,499,1534
 6y5o44iu,Montpellier Leisure Centre,"31 Rue du Commerce, Montpellier",FR,4625,LEI,100,D,0.2,district_heating,low_e,led,false,true,false,false,false,false,false,0,925
-2b7yjnxz,176 Ulica Marszałkowska Medical Practice,"22 Ulica Ratajczaka, Poznań",PL,13730,HEC,100,A+,0.5,district_heating,double,led,true,false,true,false,false,false,false,0,2746
-z1xgpxah,The 58 Manchester,"148 Kings Road, Manchester",UK,11135,HOT,100,E,0.8,oil_boiler,single,fluorescent,true,false,true,false,true,false,false,0,1114
+2b7yjnxz,176 Ulica Marszałkowska Medical Practice,"8 Ulica Ratajczaka, Poznań",PL,13730,HEC,100,A+,0.5,district_heating,double,led,true,false,true,false,false,false,false,0,2746
+z1xgpxah,The 58 Manchester,"18 Deansgate, Manchester",UK,11135,HOT,100,E,0.8,oil_boiler,single,fluorescent,true,false,true,false,true,false,false,0,1114
 guas173r,The 94 Bristol,"53 Station Road, Bristol",UK,2635,HOT,100,C,0.4,oil_boiler,double,mixed,false,false,false,false,true,false,false,0,264
 y2z3asn9,The 34 Main Street Store,"34 Main Street, Dublin",IE,2165,RHS,100,D,0.5,heat_pump_air,double,fluorescent,false,false,true,false,true,false,false,0,541
 bjzp97bm,107 125 The Mall,"18 O'Connell Street, Limerick",IE,135,RSF,100,B,0.2,gas_boiler,double,led,true,false,false,false,false,false,false,0,14
 jxlbwq89,Two 205 Ulica Piotrkowska,"15 Rynek Główny, Krakow",PL,10845,OFF,100,C,0.1,district_heating,single,fluorescent,true,false,false,true,false,false,false,0,1627
 dpngwds9,166 Castle Street Hotel,"166 Castle Street, Kilkenny",IE,10815,HOT,100,D,0.2,gas_boiler,double,mixed,true,false,false,false,false,false,false,0,1082
 zl01q3m7,"Block A, 55 Corso Italia","55 Corso Italia, Milan",IT,7340,RMF,100,D,0.5,gas_boiler,triple,mixed,false,false,false,false,true,false,false,0,734
-td1fpe60,14 125 Ringstraße,"125 Ringstraße, Berlin",DE,1850,RMF,100,C,0.5,district_heating,double,fluorescent,false,false,false,false,false,false,false,0,185
-akgmih6m,Units at 216 Prinsengracht,"9 Koetsierstraat, Almere",NL,3015,RHS,100,C,0.5,district_heating,single,mixed,false,false,false,false,true,false,false,0,754
+td1fpe60,14 125 Ringstraße,"16 Friedrichstraße, Berlin",DE,1850,RMF,100,C,0.5,district_heating,double,fluorescent,false,false,false,false,false,false,false,0,185
+akgmih6m,Units at 216 Prinsengracht,"6 Stadsplein, Almere",NL,3015,RHS,100,C,0.5,district_heating,single,mixed,false,false,false,false,true,false,false,0,754
 jmmb5jfy,Paris Retail Warehouse,"172 Rue de la République, Paris",FR,16980,RWB,100,,0.2,heat_pump_air,double,mixed,false,false,false,true,true,false,false,0,5943
 f1pi2ooq,Ghent Retail Warehouse,"204 Grote Markt, Ghent",BE,2325,RWB,100,E,0.7,gas_boiler,single,mixed,false,true,false,false,false,true,false,102,814
 t2xz52oh,66D 10 Mill Lane,"10 Mill Lane, Leeds",UK,125,RSF,100,D,0.7,oil_boiler,double,mixed,false,false,false,false,false,false,true,0,12
@@ -394,7 +394,7 @@ m600x28p,Two 67 Kings Road,"67 Kings Road, Bristol",UK,5875,OFF,60,E,0.4,gas_boi
 m600x28p,Two 67 Kings Road,"67 Kings Road, Bristol",UK,5875,RHS,40,E,0.4,gas_boiler,single,mixed,false,false,false,false,false,true,false,0,1116
 2zvl9e9z,Strasbourg Leisure Centre,"14 Rue des Grandes Arcades, Strasbourg",FR,1465,LEI,100,,0.5,district_heating,single,fluorescent,false,true,true,false,false,false,true,0,293
 kxupr6h2,119-6 167 High Street,"167 High Street, Leeds",UK,5755,RMF,100,E,0.3,heat_pump_air,double,incandescent,false,false,false,true,false,true,false,0,576
-ecrysauu,The 42 Sheffield,"191 Kings Road, Sheffield",UK,11060,HOT,100,E,0.5,gas_boiler,single,fluorescent,true,false,true,false,false,true,true,0,1106
+ecrysauu,The 42 Sheffield,"26 Division Street, Sheffield",UK,11060,HOT,100,E,0.5,gas_boiler,single,fluorescent,true,false,true,false,false,true,true,0,1106
 j1dek8g9,Dublin Hotel,"64 Patrick Street, Dublin",IE,5305,HOT,100,D,0.6,oil_boiler,double,led,false,false,false,false,true,true,true,0,530
 09zgnx3v,Düsseldorf Leisure Centre,"40 Marktplatz, Düsseldorf",DE,4555,LEI,100,B,0.2,district_heating,double,led,false,true,false,false,false,false,false,0,911
 3y2t5ovj,183 Grafton Street Retail Park,"12 High Street, Kilkenny",IE,22520,RSM,100,B,0.9,heat_pump_air,triple,led,true,true,false,true,true,false,true,711,7882
@@ -402,21 +402,21 @@ s0rs95zo,87 234 Nieuwezijds Voorburgwal,"234 Nieuwezijds Voorburgwal, Amsterdam"
 764caqkd,One 185 Church Lane,"12 Argyle Street, Glasgow",UK,8360,OFF,100,C,0.7,gas_boiler,double,mixed,true,false,true,false,true,false,false,0,1254
 jpt2zl15,Lille Leisure Centre,"22 Rue Faidherbe, Lille",FR,845,LEI,100,B,0.5,district_heating,low_e,led,true,true,false,true,true,false,true,0,169
 b97pwdbo,163 Station Road Hotel,"14 Morningside Road, Edinburgh",UK,8855,HOT,100,C,0.1,gas_boiler,double,fluorescent,true,false,true,false,false,true,false,0,886
-jvddwvb8,210 Stureplan Medical Practice,"210 Stureplan, Gothenburg",SE,3455,HEC,100,G,0.8,district_heating,single,fluorescent,false,false,false,false,false,true,false,0,691
+jvddwvb8,210 Stureplan Medical Practice,"22 Avenyn, Gothenburg",SE,3455,HEC,100,G,0.8,district_heating,single,fluorescent,false,false,false,false,false,true,false,0,691
 3rtscpsu,One 156 Bergstraße,"156 Bergstraße, Frankfurt",DE,3870,OFF,100,D,0.1,gas_boiler,double,fluorescent,true,false,false,false,false,false,false,0,580
 6k9wam0k,29 5 Mill Lane Cold Hub,"14 Friars Entry, Oxford",UK,9975,DWC,100,E,0.5,gas_boiler,single,fluorescent,true,true,false,false,true,false,false,0,5985
 xafgovcc,3 233 Victoria Street Office,"233 Victoria Street, Manchester",UK,12595,OFF,100,E,0.8,gas_boiler,double,fluorescent,false,false,true,false,false,false,false,0,1889
 td5oaiin,46 74 Goethestraße,"74 Goethestraße, Düsseldorf",DE,115,RSF,100,D,0.2,heat_pump_air,double,mixed,false,false,false,true,false,true,true,0,12
-loz2rcu8,Birmingham Mall,"24 Market Place, Birmingham",UK,25925,RSM,100,D,0.6,gas_boiler,double,fluorescent,true,true,false,false,false,false,false,1134,9074
+loz2rcu8,Birmingham Mall,"14 Corporation Street, Birmingham",UK,25925,RSM,100,D,0.6,gas_boiler,double,fluorescent,true,true,false,false,false,false,false,1134,9074
 fq4t7phi,Two 31 Calle Alcalá,"31 Calle Alcalá, Valencia",ES,7260,OFF,100,C,0.2,electric_boiler,single,led,false,true,false,false,true,false,false,253,1089
 5t37szpf,Aarhus Retail Warehouse,"134 Vesterbrogade, Aarhus",DK,3835,RWB,100,C,0.3,district_heating,double,fluorescent,false,true,false,false,false,false,false,166,1342
 l7amkoh1,Barcelona Health Centre,"250 Gran Vía, Barcelona",ES,17500,HEC,100,B,0.3,gas_boiler,low_e,mixed,true,false,false,false,false,true,true,0,3500
 hvcfwr2f,47 141 Drottninggatan Office,"22 Svartbäcksgatan, Uppsala",SE,3080,OFF,50,G,0.3,district_heating,double,mixed,false,false,false,false,false,false,false,0,385
 hvcfwr2f,47 141 Drottninggatan Office,"141 Drottninggatan, Uppsala",SE,3080,RMF,50,G,0.3,district_heating,double,mixed,false,false,false,false,false,false,false,0,385
 x0i3a4kf,"Block H, 19 Goethestraße","19 Goethestraße, Düsseldorf",DE,3060,RMF,100,D,0.9,gas_boiler,single,fluorescent,false,false,true,false,false,true,true,0,306
-yjwdcokz,45 Malmö Tower,"135 Stureplan, Malmö",SE,14960,OFF,100,F,0.5,district_heating,double,mixed,true,false,false,false,false,true,false,0,2244
+yjwdcokz,45 Malmö Tower,"14 Södergatan, Malmö",SE,14960,OFF,100,F,0.5,district_heating,double,mixed,true,false,false,false,false,true,false,0,2244
 0974wxub,Units at 49 Rambla dels Estudis,"32 Carrer de Colón, Valencia",ES,960,RHS,100,G,0.9,heat_pump_air,single,incandescent,false,false,false,false,true,false,true,0,240
-93dxwor1,The 26 Aleja Jerozolimska Building,"24 Ulica Ratajczaka, Poznań",PL,5050,OFF,100,F,0.4,gas_boiler,single,fluorescent,true,false,false,false,false,false,false,0,758
+93dxwor1,The 26 Aleja Jerozolimska Building,"6 Ulica Ratajczaka, Poznań",PL,5050,OFF,100,F,0.4,gas_boiler,single,fluorescent,true,false,false,false,false,false,false,0,758
 lgupuowo,"Block C, 239 The Strand","25 Buchanan Street, Glasgow",UK,6165,RMF,100,C,0.5,gas_boiler,double,led,true,false,false,false,false,true,true,0,616
 hg403njb,Oxford Health Centre,"37 High Street, Oxford",UK,4635,HEC,100,D,0.8,gas_boiler,double,fluorescent,false,false,true,false,false,false,false,0,927
 tf07gbas,26 Manchester Tower,"24 King Street, Manchester",UK,2570,OFF,100,C,0.3,gas_boiler,low_e,fluorescent,true,false,false,false,true,false,true,0,386
@@ -452,7 +452,7 @@ zsgu4w8w,Units at 151 Victoria Street,"151 Victoria Street, Edinburgh",UK,720,RH
 2dz61txs,71G 51 Schillerstraße,"51 Schillerstraße, Dresden",DE,210,RSF,100,E,0.5,gas_boiler,single,mixed,false,false,false,false,false,false,false,0,21
 t7dvo342,The 191 Hauptstraße Store,"191 Hauptstraße, Cologne",DE,1180,RHS,100,,0.8,gas_boiler,triple,led,false,false,true,false,false,false,false,0,295
 ifwr0ui1,80 Market Place Hotel,"16 New Street, Birmingham",UK,10310,HOT,60,C,0.1,gas_boiler,double,fluorescent,false,false,true,false,true,true,false,0,1443
-ifwr0ui1,80 Market Place Hotel,"80 Market Place, Birmingham",UK,10310,LEI,40,C,0.1,gas_boiler,double,fluorescent,false,false,true,false,true,true,false,0,1443
+ifwr0ui1,80 Market Place Hotel,"24 Colmore Row, Birmingham",UK,10310,LEI,40,C,0.1,gas_boiler,double,fluorescent,false,false,true,false,true,true,false,0,1443
 pk7yswnx,Sheffield Shopping Centre,"134 Station Road, Sheffield",UK,44615,RSM,100,C,0.6,gas_boiler,single,mixed,false,false,true,false,true,false,false,0,15615
 7uxhvdhg,Montpellier Mall,"33 Rue du Commerce, Montpellier",FR,42725,RSM,100,E,0.8,heat_pump_air,single,fluorescent,true,false,false,false,false,false,false,0,14954
 4884z4ur,28-14 176 Via Roma,"24 Via Chiaia, Naples",IT,1660,RMF,100,A,0.5,electric_boiler,low_e,led,false,false,true,false,true,false,false,0,166
@@ -468,7 +468,7 @@ ajkpqkbe,Two 137 Calle Alcalá,"137 Calle Alcalá, Zaragoza",ES,1850,OFF,100,B,0
 0hzyjb48,144 Damrak Sports Club,"38 Karel Doormanstraat, Rotterdam",NL,6550,LEI,100,C,0.5,oil_boiler,double,fluorescent,false,true,false,false,false,true,false,0,1310
 k1wxywws,The 58 Place du Marché Store,"22 Rue des Orfèvres, Strasbourg",FR,3885,RHS,100,D,0.3,electric_boiler,double,fluorescent,false,true,false,true,true,true,false,266,971
 g6q0iqzh,96 17 High Street Retail Park,"17 High Street, Edinburgh",UK,24400,RWB,100,D,0.4,electric_boiler,double,mixed,false,false,false,false,false,true,false,0,8540
-31egom62,43 25 Market Place Retail Park,"25 Market Place, Oxford",UK,18105,RWB,100,E,0.5,heat_pump_air,single,mixed,false,true,false,false,false,false,false,1001,6337
+31egom62,43 25 Market Place Retail Park,"22 Cornmarket Street, Oxford",UK,18105,RWB,100,E,0.5,heat_pump_air,single,mixed,false,true,false,false,false,false,false,1001,6337
 jz09owgm,219 Mill Lane Retail Park,"11 Vicar Lane, Leeds",UK,36800,RSM,100,D,0.7,gas_boiler,single,mixed,false,false,true,false,false,true,false,0,12880
 058cuij0,94 167 Grafton Street Retail Park,"14 Oliver Plunkett Street, Cork",IE,3320,RWB,100,,0.5,oil_boiler,single,fluorescent,false,false,false,false,false,false,false,0,1162
 3wqa1vrg,The 15 Toulouse,"24 Rue de la Pomme, Toulouse",FR,6090,HOT,100,C,0.7,electric_boiler,double,mixed,false,false,false,false,true,false,true,0,609
@@ -486,12 +486,12 @@ prlzkczy,The 188 The Strand Building,"22 Division Street, Sheffield",UK,7025,OFF
 51z58b4j,77 110 Leidsestraat,"24 Hofweg, Den Haag",NL,310,RSF,100,E,0.4,gas_boiler,single,fluorescent,false,false,false,false,true,false,false,0,31
 4ns7nvv2,The 148 Rua Augusta Store,"148 Rua Augusta, Lisbon",PT,2475,RHS,100,D,0.8,heat_pump_air,single,led,false,false,false,false,true,false,false,0,619
 9j2h1tlo,209 Church Lane Retail Park,"12 Water Street, Liverpool",UK,45395,RSM,100,D,0.4,gas_boiler,single,fluorescent,true,false,false,false,false,false,true,0,15888
-x4fmmen4,64 225 Paseo de Gracia,"225 Paseo de Gracia, Barcelona",ES,3485,RHS,100,B,0.7,heat_pump_air,double,mixed,true,false,false,false,false,true,false,0,871
+x4fmmen4,64 225 Paseo de Gracia,"48 Paseo de Gracia, Barcelona",ES,3485,RHS,100,B,0.7,heat_pump_air,double,mixed,true,false,false,false,false,true,false,0,871
 67lm8e49,The 92 Birmingham,"18 New Street, Birmingham",UK,8295,HOT,60,D,0.2,heat_pump_air,double,mixed,true,true,false,false,true,false,false,542,1161
-67lm8e49,The 92 Birmingham,"138 The Strand, Birmingham",UK,8295,LEI,40,D,0.2,heat_pump_air,double,mixed,true,true,false,false,true,false,false,542,1161
+67lm8e49,The 92 Birmingham,"12 Temple Row, Birmingham",UK,8295,LEI,40,D,0.2,heat_pump_air,double,mixed,true,true,false,false,true,false,false,542,1161
 9hqtylu5,One 37 Rua de Santa Catarina,"37 Rua de Santa Catarina, Faro",PT,10285,OFF,100,B,0.5,heat_pump_air,low_e,mixed,true,false,true,true,false,true,false,0,1543
 oi9wm1sa,Groningen Business Centre,"16 Herestraat, Groningen",NL,8970,OFF,60,A,0.5,heat_pump_air,triple,led,true,false,false,false,true,true,false,0,1704
-oi9wm1sa,Groningen Business Centre,"143 Keizersgracht, Groningen",NL,8970,RHS,40,A,0.5,heat_pump_air,triple,led,true,false,false,false,true,true,false,0,1704
+oi9wm1sa,Groningen Business Centre,"6 Folkingestraat, Groningen",NL,8970,RHS,40,A,0.5,heat_pump_air,triple,led,true,false,false,false,true,true,false,0,1704
 mgs6rv97,238 Ulica Piotrkowska Sports Club,"14 Rynek, Wrocław",PL,9585,LEI,100,B,0.4,district_heating,low_e,led,true,true,true,false,false,false,false,0,1917
 aduvl911,Units at 136 O'Connell Street,"136 O'Connell Street, Cork",IE,2505,RHS,100,E,0.8,gas_boiler,single,incandescent,false,false,false,false,true,false,false,0,626
 k6x6lgoi,Units at 103 Ulica Marszałkowska,"28 Ulica Józefa, Krakow",PL,2840,RHS,100,C,0.5,gas_boiler,single,fluorescent,false,false,true,false,true,true,false,0,710
@@ -510,7 +510,7 @@ y66w6rkm,Rome Cold Store,"179 Corso Italia, Rome",IT,18000,DWC,100,E,0.8,heat_pu
 1zn1riam,Eindhoven Hotel,"12 18 Septemberplein, Eindhoven",NL,5645,HOT,100,D,0.7,oil_boiler,double,fluorescent,false,false,true,false,false,false,true,0,564
 kvlablrf,73 97 Korenmarkt,"97 Korenmarkt, Brussels",BE,3440,RMF,100,C,0.8,gas_boiler,single,fluorescent,false,false,false,false,false,false,false,0,344
 6jixub4i,Two 57 Station Road,"57 Station Road, Birmingham",UK,5535,OFF,100,C,0.9,gas_boiler,low_e,mixed,true,false,false,false,false,true,true,0,830
-ekbvxsog,Units at 206 Kings Road,"206 Kings Road, Cambridge",UK,3210,RHS,100,D,0.5,oil_boiler,double,fluorescent,false,false,false,false,false,false,false,0,802
+ekbvxsog,Units at 206 Kings Road,"14 Hills Road, Cambridge",UK,3210,RHS,100,D,0.5,oil_boiler,double,fluorescent,false,false,false,false,false,false,false,0,802
 bajaq08d,166 Goethestraße Retail Park,"166 Goethestraße, Düsseldorf",DE,23350,RSM,100,C,0.1,gas_boiler,double,mixed,true,false,false,false,false,true,false,0,8172
 a6x85zzh,92 172 Park Avenue Retail Park,"12 Dundas Street, Edinburgh",UK,2065,RWB,100,,0.1,gas_boiler,single,incandescent,false,true,false,false,false,false,true,152,723
 7xqty6m7,Odense Distribution Centre,"38 Østergade, Odense",DK,7225,DWW,100,F,0.8,heat_pump_ground,single,mixed,false,true,true,false,false,false,false,566,4335
@@ -546,7 +546,7 @@ u8iziibc,"Block A, 248 Goethestraße","248 Goethestraße, Cologne",DE,5540,RMF,1
 shdkkg1r,21-9 17 Avenida del Puerto,"18 Passeig del Born, Palma",ES,3880,RMF,100,C,0.5,gas_boiler,double,fluorescent,true,false,false,false,true,false,false,0,388
 w2tgrtfa,Two 198 Avenida del Puerto,"24 Calle del Coso, Zaragoza",ES,3470,OFF,100,C,0.5,heat_pump_air,double,fluorescent,true,false,false,false,false,false,false,0,520
 y9pe0hdj,Łódź Hospital Annex,"36 Ulica Narutowicza, Łódź",PL,7850,HEC,100,B,0.4,district_heating,low_e,mixed,false,false,true,false,true,false,false,0,1570
-jgf00hhe,20 Frankfurt Tower,"170 Ringstraße, Frankfurt",DE,12190,OFF,100,F,0.4,gas_boiler,single,incandescent,false,true,false,false,false,false,false,643,1828
+jgf00hhe,20 Frankfurt Tower,"14 Kaiserstraße, Frankfurt",DE,12190,OFF,100,F,0.4,gas_boiler,single,incandescent,false,true,false,false,false,false,false,643,1828
 9tu8pv2k,Edinburgh Mall,"55 High Street, Edinburgh",UK,40090,RSM,100,D,0.2,gas_boiler,double,fluorescent,false,false,true,false,false,false,false,0,14032
 f2zdfppw,111 195 Market Place,"18 Church Street, Liverpool",UK,3570,RHS,100,C,0.1,gas_boiler,low_e,mixed,false,false,false,false,true,false,false,0,892
 vurr6cg1,One 202 Rue de la République,"28 Rue de la Paix, Nantes",FR,7420,OFF,100,D,0.1,heat_pump_air,double,fluorescent,false,true,true,false,true,false,false,458,1113
@@ -575,7 +575,7 @@ szf4lur0,137 Via Garibaldi Retail Park,"137 Via Garibaldi, Bologna",IT,17205,RSM
 t0otgpeq,24 176 Station Road,"22 Causewayside, Edinburgh",UK,170,RSF,100,G,0.9,gas_boiler,single,mixed,false,false,false,false,false,false,false,0,17
 5h3k7ujj,Naples Business Centre,"18 Via Toledo, Naples",IT,14935,OFF,100,D,0.8,gas_boiler,single,led,false,false,false,false,false,false,false,0,2240
 b1r3yqs5,Stuttgart Shopping Centre,"18 Tübinger Strasse, Stuttgart",DE,20520,RSM,100,D,0.5,district_heating,double,fluorescent,true,false,false,false,true,false,true,0,7182
-gwhaoqhv,53 248 Kings Road,"248 Kings Road, Birmingham",UK,6195,RMF,100,B,0.4,gas_boiler,low_e,led,false,false,false,false,true,false,true,0,620
+gwhaoqhv,53 248 Kings Road,"28 Broad Street, Birmingham",UK,6195,RMF,100,B,0.4,gas_boiler,low_e,led,false,false,false,false,true,false,true,0,620
 gxxksf2g,The 20 Oxford,"8 Speedwell Street, Oxford",UK,6025,HOT,100,F,0.8,oil_boiler,single,mixed,true,false,false,false,false,false,false,0,602
 lnl7ha75,Turin Retail Warehouse,"7 Corso Italia, Turin",IT,13855,RWB,100,D,0.6,heat_pump_air,double,fluorescent,false,true,false,false,true,false,false,1061,4849
 r6xn6lcp,The 90 Patrick Street Building,"90 Patrick Street, Galway",IE,4330,OFF,100,C,0.2,gas_boiler,double,fluorescent,true,true,true,false,false,false,false,0,650
@@ -597,7 +597,7 @@ kjymjbt3,83 177 Drottninggatan,"14 Dragarbrunnsgatan, Uppsala",SE,2985,RHS,100,E
 nadkn2k7,101-14 142 Park Avenue,"16 Merrion Street, Leeds",UK,895,RMF,100,D,0.1,gas_boiler,single,fluorescent,false,false,true,false,false,false,false,0,90
 ypdax6kd,Units at 216 Station Road,"24 Cheltenham Road, Bristol",UK,2320,RHS,50,C,0.5,gas_boiler,low_e,led,false,false,true,false,true,true,false,0,406
 ypdax6kd,Units at 216 Station Road,"216 Station Road, Bristol",UK,2320,RMF,50,C,0.5,gas_boiler,low_e,led,false,false,true,false,true,true,false,0,406
-2pn4u6av,39 242 Kings Road,"242 Kings Road, Birmingham",UK,245,RSF,100,D,0.9,gas_boiler,double,fluorescent,true,false,false,false,false,true,false,0,24
+2pn4u6av,39 242 Kings Road,"16 Smallbrook Queensway, Birmingham",UK,245,RSF,100,D,0.9,gas_boiler,double,fluorescent,true,false,false,false,false,true,false,0,24
 oejfvrsc,The 182 Park Avenue Store,"28 Regent Street, Cambridge",UK,640,RHS,100,B,0.7,gas_boiler,low_e,led,true,false,true,false,false,true,false,0,160
 lz2ads83,9 Cambridge Tower,"11 St Andrew's Street, Cambridge",UK,7175,OFF,100,B,0.7,heat_pump_ground,double,mixed,true,true,true,false,true,true,false,331,1076
 8jz9ds2u,"Block D, 76 Station Road","76 Station Road, Oxford",UK,4035,RMF,100,C,0.7,gas_boiler,double,fluorescent,true,false,false,false,true,false,false,0,404
@@ -610,7 +610,7 @@ f6dohe7k,246 The Mall Sports Club,"246 The Mall, Galway",IE,9615,LEI,100,E,0.7,g
 gzgxvxc6,65B 32 Rue du Commerce,"32 Rue du Commerce, Montpellier",FR,410,RSF,100,C,0.2,district_heating,single,fluorescent,false,false,false,false,false,false,false,0,41
 62j8lbds,"Block C, 194 Bridge Road","194 Bridge Road, Birmingham",UK,4715,RMF,70,C,0.5,gas_boiler,double,fluorescent,false,false,false,false,true,true,false,0,613
 62j8lbds,"Block C, 194 Bridge Road","194 Bridge Road, Birmingham",UK,4715,LEI,30,C,0.5,gas_boiler,double,fluorescent,false,false,false,false,true,true,false,0,613
-epm7zdng,Örebro Business Centre,"195 Stureplan, Örebro",SE,14820,OFF,50,B,0.5,district_heating,double,led,true,false,true,false,true,false,false,0,1852
+epm7zdng,Örebro Business Centre,"18 Drottninggatan, Örebro",SE,14820,OFF,50,B,0.5,district_heating,double,led,true,false,true,false,true,false,false,0,1852
 epm7zdng,Örebro Business Centre,"195 Stureplan, Örebro",SE,14820,RMF,50,B,0.5,district_heating,double,led,true,false,true,false,true,false,false,0,1852
 bi8tjwof,59 Manchester Tower,"18 Oxford Street, Manchester",UK,1215,OFF,100,C,0.7,gas_boiler,low_e,fluorescent,true,false,true,false,true,false,false,0,182
 ege5ekfh,Units at 36 Marktplatz,"18 Altmarkt, Dresden",DE,720,RHS,100,B,0.7,district_heating,double,mixed,true,false,false,true,false,false,false,0,180
@@ -636,7 +636,7 @@ gjnxi5p2,One 38 Marktplatz,"12 Wilsdruffer Strasse, Dresden",DE,2850,OFF,100,C,0
 qb3kbwif,249 The Strand Retail Park,"37 Pinstone Street, Sheffield",UK,44200,RSM,100,C,0.2,gas_boiler,double,mixed,true,false,true,false,false,false,false,0,15470
 asssulja,Sheffield Cold Store,"15 Fargate, Sheffield",UK,25895,DWC,100,B,0.5,gas_boiler,low_e,led,true,true,true,false,true,false,false,0,15537
 uacotfva,The 186 Schillerstraße Building,"186 Schillerstraße, Hamburg",DE,5585,OFF,100,G,0.5,gas_boiler,single,fluorescent,false,false,false,false,false,true,false,0,838
-4i4cxgf8,"Block C, 20 Market Place","20 Market Place, Cambridge",UK,7435,RMF,100,B,0.5,heat_pump_air,triple,led,true,false,false,false,true,true,false,0,744
+4i4cxgf8,"Block C, 20 Market Place","16 Sidney Street, Cambridge",UK,7435,RMF,100,B,0.5,heat_pump_air,triple,led,true,false,false,false,true,true,false,0,744
 k501epek,Cambridge Distribution Centre,"22 Chesterton Road, Cambridge",UK,7865,DWW,100,B,0.3,gas_boiler,triple,led,true,true,true,false,true,true,false,672,4719
 paygaa70,The 50 Rue du Commerce Building,"18 Rue du Molinel, Lille",FR,5570,OFF,100,D,0.5,heat_pump_air,single,mixed,false,true,false,false,true,true,false,355,836
 h3o0sw58,20 193 Aleja Jerozolimska Office,"16 Ulica Szewska, Krakow",PL,7410,OFF,100,D,0.2,district_heating,single,mixed,false,false,false,false,true,true,false,0,1112
@@ -648,7 +648,7 @@ bhyz1ov5,166 Herengracht Sports Club,"166 Herengracht, Amsterdam",NL,6845,LEI,10
 x8u73nkb,Manchester Mall,"34 Deansgate, Manchester",UK,44150,RSM,100,C,0.6,gas_boiler,low_e,led,true,true,false,false,false,false,false,3234,15452
 c0ox87cz,Marseille Retail Warehouse,"26 Rue d'Aix, Marseille",FR,7145,RWB,100,C,0.5,heat_pump_air,single,led,false,true,false,false,false,false,false,480,2501
 mfpt00e2,63 92 Bergstraße,"92 Bergstraße, Nuremberg",DE,3570,RHS,100,F,0.4,gas_boiler,double,mixed,false,false,false,false,false,false,false,0,892
-gqllx70r,Milan Health Centre,"28 Via Montenapoleone, Milan",IT,12675,HEC,100,C,0.6,heat_pump_air,double,fluorescent,true,false,false,false,false,false,false,0,2535
+gqllx70r,Milan Health Centre,"8 Via Montenapoleone, Milan",IT,12675,HEC,100,C,0.6,heat_pump_air,double,fluorescent,true,false,false,false,false,false,false,0,2535
 uti7zfzt,Units at 134 Bergstraße,"134 Bergstraße, Cologne",DE,1235,RHS,100,E,0.7,gas_boiler,single,fluorescent,false,false,true,false,false,false,false,0,309
 tx6qcalu,24 248 Park Avenue Cold Hub,"34 The Headrow, Leeds",UK,16505,DWC,100,C,0.3,gas_boiler,double,fluorescent,false,true,false,false,false,false,false,0,9903
 a30w78zw,27 Bridge Road Retail Park,"27 Bridge Road, Liverpool",UK,14685,RSM,100,D,0.5,oil_boiler,single,mixed,true,true,false,false,false,true,false,972,5140
@@ -662,7 +662,7 @@ bqfdtnbs,Two 168 Kungsgatan,"14 S:t Olofsgatan, Uppsala",SE,13475,OFF,100,E,0.5,
 xaj0q45n,173 Church Lane Retail Park,"28 Trongate, Glasgow",UK,11185,RSM,100,C,0.3,oil_boiler,double,fluorescent,true,true,false,false,true,false,true,793,3915
 u26sphnc,One 135 Park Avenue,"19 Park Row, Bristol",UK,12575,OFF,100,C,0.9,gas_boiler,double,led,true,false,false,false,false,true,false,0,1886
 lpf4g9h0,Dublin Shopping Centre,"44 Grafton Street, Dublin",IE,18640,RSM,100,E,0.1,oil_boiler,double,fluorescent,false,true,false,false,true,false,false,595,6524
-y8uqzba2,Nottingham Leisure Centre,"140 Kings Road, Nottingham",UK,6865,LEI,100,C,0.1,gas_boiler,single,fluorescent,false,true,true,false,true,false,false,0,1373
+y8uqzba2,Nottingham Leisure Centre,"22 Pelham Street, Nottingham",UK,6865,LEI,100,C,0.1,gas_boiler,single,fluorescent,false,true,true,false,true,false,false,0,1373
 7vjuz5pf,84 15 Mill Lane,"15 Mill Lane, Birmingham",UK,330,RMF,100,E,0.7,gas_boiler,double,incandescent,true,false,true,false,true,false,false,0,33
 tlty7w29,Oxford Shopping Centre,"8 Iffley Road, Oxford",UK,7075,RSM,100,B,0.8,gas_boiler,low_e,fluorescent,true,true,false,false,false,false,true,374,2476
 09jnb5x6,Odense Leisure Centre,"34 Vestergade, Odense",DK,2255,LEI,100,D,0.5,district_heating,double,fluorescent,false,true,true,false,true,true,false,0,451
@@ -674,9 +674,9 @@ zbw8p3if,106 165 Avenida del Puerto Office,"165 Avenida del Puerto, Zaragoza",ES
 9zjuk9qs,61 236 Drottninggatan,"236 Drottninggatan, Stockholm",SE,1495,RMF,50,C,0.7,district_heating,single,fluorescent,false,false,false,false,true,false,false,0,262
 miqp56a2,Rennes Shopping Centre,"14 Rue d'Orléans, Rennes",FR,28060,RSM,100,D,0.7,electric_boiler,single,mixed,true,true,false,false,true,false,true,2429,9821
 n05fl046,Brussels Hotel,"100 Rue Neuve, Brussels",BE,660,HOT,100,C,0.5,gas_boiler,double,mixed,false,false,false,true,true,false,false,0,66
-ziy75itd,210 Kings Road Medical Practice,"210 Kings Road, Bristol",UK,14780,HEC,100,C,0.3,oil_boiler,double,fluorescent,true,false,false,false,false,false,false,0,2956
-p091pqfm,Frankfurt Business Centre,"7 Ringstraße, Frankfurt",DE,8490,OFF,100,D,0.5,gas_boiler,single,led,false,false,false,false,true,false,false,0,1274
-49qpeq6y,The 243 Kings Road Store,"243 Kings Road, Cambridge",UK,1485,RHS,100,C,0.7,heat_pump_air,single,mixed,false,false,true,false,true,false,false,0,371
+ziy75itd,210 Kings Road Medical Practice,"18 Park Row, Bristol",UK,14780,HEC,100,C,0.3,oil_boiler,double,fluorescent,true,false,false,false,false,false,false,0,2956
+p091pqfm,Frankfurt Business Centre,"28 Zeil, Frankfurt",DE,8490,OFF,100,D,0.5,gas_boiler,single,led,false,false,false,false,true,false,false,0,1274
+49qpeq6y,The 243 Kings Road Store,"12 Regent Street, Cambridge",UK,1485,RHS,100,C,0.7,heat_pump_air,single,mixed,false,false,true,false,true,false,false,0,371
 pd6vq81l,33 189 Patrick Street Retail Park,"44 William Street, Limerick",IE,17520,RWB,100,D,0.6,gas_boiler,double,fluorescent,false,false,false,false,true,true,false,0,6132
 kwtejtui,241 Bahnhofstraße Sports Club,"241 Bahnhofstraße, Düsseldorf",DE,630,LEI,100,C,0.3,district_heating,single,mixed,false,true,false,false,false,true,false,0,126
 45pu2pit,79 246 Rue du Commerce,"246 Rue du Commerce, Paris",FR,445,RSF,100,G,0.5,electric_boiler,single,mixed,false,false,false,false,true,false,false,0,44
@@ -693,7 +693,7 @@ ygs0jx9a,129 Market Place Medical Practice,"18 St Aldate's, Oxford",UK,16785,HEC
 qynit38c,226 Castle Street Hotel,"226 Castle Street, Dublin",IE,8980,HOT,100,E,0.8,oil_boiler,single,incandescent,false,false,false,false,false,false,false,0,898
 e7ggo46x,158 Via Roma Hotel,"16 Calle dei Fabbri, Venice",IT,8825,HOT,100,D,0.5,heat_pump_air,double,mixed,false,true,false,true,false,false,false,0,882
 pzc5ypoh,Bruges Cold Store,"196 Rue Neuve, Bruges",BE,3970,DWC,100,D,0.8,gas_boiler,double,mixed,false,true,false,false,true,true,false,223,2382
-vgvfhzt8,Oxford Cold Store,"227 Kings Road, Oxford",UK,24420,DWC,100,C,0.9,gas_boiler,double,mixed,false,true,true,false,true,true,false,0,14652
+vgvfhzt8,Oxford Cold Store,"24 George Street, Oxford",UK,24420,DWC,100,C,0.9,gas_boiler,double,mixed,false,true,true,false,true,true,false,0,14652
 us1xibf5,83 190 O'Connell Street,"190 O'Connell Street, Limerick",IE,115,RSF,100,C,0.7,electric_boiler,triple,mixed,false,false,true,false,false,false,false,0,12
 bbwbx54q,136 Schillerstraße Sports Club,"136 Schillerstraße, Nuremberg",DE,9515,LEI,100,C,0.5,gas_boiler,double,mixed,false,true,false,true,true,false,false,372,1903
 1g7h6jjl,23-3 162 Prinsengracht,"44 Herderstraat, Den Haag",NL,2935,RMF,100,,0.9,gas_boiler,double,fluorescent,false,false,true,false,false,true,false,0,294
@@ -707,14 +707,14 @@ eja1v2tg,71 7 Via Torino,"7 Via Torino, Rome",IT,3425,RMF,100,E,0.1,gas_boiler,s
 4rs8u9bg,12D 184 Strøget,"184 Strøget, Esbjerg",DK,105,RSF,100,D,0.9,gas_boiler,double,led,false,false,true,false,false,true,false,0,10
 krz25yye,35 51 Keizersgracht Cold Hub,"11 Hospitaalweg, Almere",NL,21955,DWC,100,C,0.2,district_heating,double,led,true,true,true,false,true,false,false,1311,13173
 kertqhno,17 209 High Street,"209 High Street, Glasgow",UK,1720,RHS,100,C,0.5,gas_boiler,double,led,false,false,false,false,true,false,false,0,430
-u38bwtb5,"Block C, 235 Ringstraße","235 Ringstraße, Cologne",DE,2310,RMF,100,E,0.9,gas_boiler,single,mixed,false,false,false,false,true,false,false,0,231
+u38bwtb5,"Block C, 235 Ringstraße","12 Schildergasse, Cologne",DE,2310,RMF,100,E,0.9,gas_boiler,single,mixed,false,false,false,false,true,false,false,0,231
 ni3dpftb,115 Church Lane Medical Practice,"24 St Vincent Street, Glasgow",UK,14305,HEC,100,A,0.4,gas_boiler,low_e,led,true,true,true,false,true,true,true,992,2861
 l77vlqu0,81 239 Avenida del Puerto Retail Park,"12 Paseo de Sagasta, Zaragoza",ES,11840,RWB,100,F,0.5,gas_boiler,single,fluorescent,true,true,true,false,false,false,false,954,4144
 h9ojguei,118 102 Bridge Road,"102 Bridge Road, Glasgow",UK,5065,RMF,100,D,0.5,gas_boiler,single,mixed,false,false,false,false,false,false,false,0,506
 35ljm6c7,101 146 The Strand Office,"28 Surrey Street, Sheffield",UK,9330,OFF,100,G,0.2,gas_boiler,double,mixed,false,false,false,false,false,true,false,0,1400
 lw2ek0br,187 O'Connell Street Medical Practice,"187 O'Connell Street, Cork",IE,9855,HEC,100,A,0.9,gas_boiler,low_e,mixed,true,true,false,false,true,true,false,482,1971
 hv1y04z4,77 Tilburg Tower,"28 Willem II-straat, Tilburg",NL,12425,OFF,100,D,0.5,gas_boiler,double,led,false,true,false,false,false,false,true,856,1864
-q095egvt,96 Łódź Tower,"56 Ulica Piotrkowska, Łódź",PL,14875,OFF,100,G,0.3,district_heating,double,incandescent,false,true,false,false,false,false,false,642,2231
+q095egvt,96 Łódź Tower,"38 Ulica Narutowicza, Lodz",PL,14875,OFF,100,G,0.3,district_heating,double,incandescent,false,true,false,false,false,false,false,642,2231
 jaysywu2,Edinburgh Leisure Centre,"28 Lothian Road, Edinburgh",UK,7785,LEI,100,B,0.5,gas_boiler,double,fluorescent,true,true,false,false,true,true,false,0,1557
 2oteymom,Bristol Hospital Annex,"40 Church Lane, Bristol",UK,9520,HEC,100,B,0.7,gas_boiler,triple,led,true,false,true,true,false,false,false,0,1904
 0i91kcju,44 111 Prinsengracht Warehouse,"8 Blaak, Rotterdam",NL,17585,DWW,100,D,0.8,district_heating,single,fluorescent,false,true,false,false,false,true,false,818,10551
@@ -724,7 +724,7 @@ pgwjx3bi,Sheffield Leisure Centre,"15 Pinstone Street, Sheffield",UK,2790,LEI,10
 91wg3hjs,Hamburg Leisure Centre,"135 Hauptstraße, Hamburg",DE,8345,LEI,100,C,0.3,heat_pump_air,low_e,mixed,true,true,true,false,true,false,false,0,1669
 erftnvij,54 170 The Mall,"12 Parliament Street, Kilkenny",IE,3795,RHS,100,D,0.1,oil_boiler,single,led,false,false,false,false,false,true,false,0,949
 wy0szkbn,Units at 54 Rue de la République,"54 Rue de la République, Lyon",FR,1365,RHS,100,F,0.1,gas_boiler,single,fluorescent,true,false,false,false,false,false,false,0,341
-r3a1i10p,85 6 Kings Road,"6 Kings Road, Glasgow",UK,650,RHS,100,D,0.6,oil_boiler,single,fluorescent,false,false,false,false,true,false,false,0,162
+r3a1i10p,85 6 Kings Road,"16 St Vincent Street, Glasgow",UK,650,RHS,100,D,0.6,oil_boiler,single,fluorescent,false,false,false,false,true,false,false,0,162
 cm0tu2aq,37F 75 Victoria Street,"75 Victoria Street, Liverpool",UK,260,RSF,100,C,0.2,electric_boiler,low_e,mixed,false,false,false,false,true,false,false,0,26
 uy3k0e34,74 Allée des Roses Sports Club,"22 Cours Victor Hugo, Bordeaux",FR,970,LEI,100,E,0.5,heat_pump_air,single,mixed,false,true,true,false,false,true,false,0,194
 6hpphpm0,Sheffield Business Centre,"222 Bridge Road, Sheffield",UK,2755,OFF,100,D,0.5,electric_boiler,double,mixed,false,false,false,false,false,false,false,0,413
