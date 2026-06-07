@@ -1409,7 +1409,9 @@ function EmptyState({ icon: Icon, title, message, action }) {
   return (
     <div style={{ background: '#fff', border: '1px solid ' + T.border, padding: '60px 32px', textAlign: 'center', borderRadius: '8px' }}>
       {Icon && <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
-        <Icon size={28} color={T.warmGreyLight} strokeWidth={1.5} />
+        <div style={{ width: 56, height: 56, borderRadius: '50%', background: T.successBg, border: '1px solid ' + T.forestSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon size={24} color={T.forest} strokeWidth={1.5} />
+        </div>
       </div>}
       <h3 style={{ fontFamily: T.body, fontSize: 16, fontWeight: 600, color: T.ink, margin: '0 0 8px' }}>{title}</h3>
       {message && <p style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, margin: '0 0 20px', maxWidth: 480, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>{message}</p>}
@@ -1693,10 +1695,13 @@ function StatCard({ label, value, sublabel, accent, delta, deltaText, deltaGood,
   const badge = deltaText != null
     ? deltaText
     : delta != null ? (delta < 0 ? '▼ ' : '▲ ') + Math.abs(delta).toFixed(1) + '% vs BAU' : null;
+  const stripeColor = accent && accent !== T.ink ? accent : T.border;
   return (
     <div style={{
       padding: '14px 16px', background: '#fff',
-      border: '1px solid ' + T.border, borderRadius: '8px',
+      border: '1px solid ' + T.border,
+      borderLeft: '4px solid ' + stripeColor,
+      borderRadius: '8px',
       minWidth: 0,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
@@ -1777,11 +1782,12 @@ function ActionCard({ num, title, desc, action, actionLabel, secondaryAction, se
       padding: '20px 24px', borderRadius: '8px', display: 'flex', flexDirection: 'column',
       background: highlight ? '#f0faf4' : '#fff',
       border: '1px solid ' + (highlight ? T.forestSoft : T.border),
+      borderLeft: highlight ? '4px solid ' + T.forest : '4px solid ' + T.border,
     }}>
       <h3 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: highlight ? T.forest : T.ink, margin: '0 0 8px' }}>{title}</h3>
-      <p style={{ fontFamily: T.body, fontSize: 13, color: highlight ? '#4a7c5f' : T.warmGrey, lineHeight: 1.6, margin: '0 0 20px', flexGrow: 1 }}>{desc}</p>
+      <p style={{ fontFamily: T.body, fontSize: 13, color: highlight ? '#3d7055' : T.warmGrey, lineHeight: 1.6, margin: '0 0 20px', flexGrow: 1 }}>{desc}</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {action && <Button onClick={action} icon={ChevronRight} variant="success" style={{ alignSelf: 'flex-start' }}>{actionLabel}</Button>}
+        {action && <Button onClick={action} icon={ChevronRight} variant={highlight ? 'primary' : 'success'} style={{ alignSelf: 'flex-start' }}>{actionLabel}</Button>}
         {secondaryAction && <Button onClick={secondaryAction} variant="secondary" style={{ alignSelf: 'flex-start' }}>{secondaryLabel}</Button>}
       </div>
     </div>
@@ -7085,6 +7091,7 @@ function ChartCard({ title, subtitle, legend, children, panelId }) {
       style={{
         background: '#fff',
         border: '1px solid ' + T.border,
+        borderTop: '3px solid ' + T.forest,
         borderRadius: 8, padding: '20px 24px',
         opacity: 1,
         outline: 'none',
@@ -7110,7 +7117,7 @@ function ChartCard({ title, subtitle, legend, children, panelId }) {
           )}
           <div style={{ minWidth: 0 }}>
             <h2 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h2>
-            <p style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey, margin: 0 }}>{subtitle}</p>
+            <p style={{ fontFamily: T.body, fontSize: 12, color: T.warmGreyLight, margin: 0 }}>{subtitle}</p>
           </div>
         </div>
         {legend && <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 10, fontFamily: T.body, fontSize: 11, flexShrink: 0, marginLeft: 16 }}>{legend}</div>}
@@ -7993,7 +8000,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
       />
 
       {/* Settings bar */}
-      <div data-filter-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 28, position: 'sticky', top: 48, zIndex: T.z.filterBar, boxShadow: SHADOW_SM }}>
+      <div data-filter-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#fff', border: '1px solid ' + T.border, borderBottom: '2px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 28, position: 'sticky', top: 48, zIndex: T.z.filterBar, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontFamily: T.body, fontSize: 13, fontWeight: 500, color: T.warmGrey, whiteSpace: 'nowrap' }}>Base period</span>
           <TooltipIcon text="Start month and year of the 12-month window used to roll up energy consumption into annual figures. All carbon and energy intensity calculations are based on this window. Buildings need complete data for all 12 months to be included." />
@@ -8808,8 +8815,8 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{pw != null ? pw.toFixed(1) : '—'}</td>
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{dispBC != null ? dispBC.toFixed(1) : '—'}</td>
                           <td style={{ padding: '12px 14px' }}>
-                            {isStranded && <span style={{ background: T.errorBg, color: T.rose, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block' }}>Stranded</span>}
-                            {isOnTrack  && <span style={{ background: '#dcfce7', color: T.successText, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block' }}>On track</span>}
+                            {isStranded && <span style={{ background: '#fee2e2', color: T.rose, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid #fca5a5' }}>Stranded</span>}
+                            {isOnTrack  && <span style={{ background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid #86efac' }}>On track</span>}
                             {!isStranded && !isOnTrack && <span style={{ color: T.warmGreyLight, fontSize: 11 }}>—</span>}
                           </td>
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: dispBStrand ? T.rose : T.warmGreyLight }}>{dispBStrand ?? '—'}</td>
@@ -10609,7 +10616,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
       </TabInfoAccordion>
 
       {/* Filter bar — sticky, mirrors Dashboard filter bar order: countries, asset classes, select buildings */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 24, boxShadow: SHADOW_SM, position: 'sticky', top: 48, zIndex: T.z.filterBar }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#fff', border: '1px solid ' + T.border, borderBottom: '2px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 24, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', position: 'sticky', top: 48, zIndex: T.z.filterBar }}>
         <span style={{ fontFamily: T.body, fontSize: 13, fontWeight: 500, color: T.warmGrey, whiteSpace: 'nowrap' }}>Filter</span>
         <MultiSelect
           placeholder="All countries"
@@ -11437,6 +11444,7 @@ export default function App() {
         <nav style={{ display: 'flex', gap: 0, flex: 1, minWidth: 0 }}>
           {TABS.map(tab => {
             const active = activeTab === tab.id;
+            const TabIcon = tab.icon;
             return (
               <button
                 key={tab.id} onClick={() => {
@@ -11449,17 +11457,20 @@ export default function App() {
                   }
                 }}
                 style={{
-                  padding: '14px 12px',
-                  background: 'transparent',
+                  padding: '0 13px',
+                  height: 48,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: active ? 'rgba(255,255,255,0.08)' : 'transparent',
                   color: active ? '#ffffff' : 'rgba(255,255,255,0.5)',
                   borderBottom: active ? '2px solid ' + T.forestSoft : '2px solid transparent',
-                  border: 'none',
+                  borderTop: 'none', borderLeft: 'none', borderRight: 'none',
                   cursor: 'pointer',
                   fontFamily: T.body, fontSize: 13, fontWeight: active ? 500 : 400,
                   whiteSpace: 'nowrap',
-                  transition: 'color 0.12s',
+                  transition: 'color 0.12s, background 0.12s',
                 }}
               >
+                {TabIcon && <TabIcon size={13} strokeWidth={active ? 2.2 : 1.8} style={{ flexShrink: 0 }} />}
                 {tab.label}
               </button>
             );
