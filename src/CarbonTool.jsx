@@ -1630,6 +1630,9 @@ function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, s
         title="Overview"
         description="Calculate operational carbon, forecast trajectories to 2050, and benchmark every building in your portfolio against the CRREM 1.5°C decarbonisation pathways."
       />
+      <div style={{ marginTop: -20, marginBottom: 32, fontFamily: T.body, fontSize: 12, color: T.warmGreyLight }}>
+        Built by <a href="https://www.linkedin.com/in/eric-lucking-015765104/" target="_blank" rel="noopener noreferrer" style={{ color: T.warmGrey, fontWeight: 500, textDecoration: 'none', borderBottom: '1px solid ' + T.border }}>Eric Lucking</a>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 56 }}>
         <StatCard label="Buildings" value={buildings.length.toString()} sublabel={buildings.length === 0 ? 'None added yet' : 'In portfolio'} accent={buildings.length > 0 ? T.forest : T.warmGreyLight} />
@@ -1676,9 +1679,7 @@ function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, s
         ))}
       </div>
 
-      <div style={{ paddingTop: 24, borderTop: '1px solid ' + T.border, fontFamily: T.body, fontSize: 12, color: T.warmGreyLight, lineHeight: 1.6 }}>
-        Pathway and grid emission factor data from the Carbon Risk Real Estate Monitor (CRREM), V2.04 (28 August 2025). www.crrem.org
-      </div>
+
     </div>
   );
 }
@@ -11536,6 +11537,7 @@ export default function App() {
       }}>
         <span>Pathway and grid emission factor data from the Carbon Risk Real Estate Monitor (CRREM), V2.04 (28 August 2025). <a href="https://www.crrem.org" target="_blank" rel="noopener noreferrer" style={{ color: T.warmGreyLight }}>www.crrem.org</a></span>
         <span>CarbonTool is an independent project and is not affiliated with or endorsed by CRREM.</span>
+        <span>Created by <a href="https://www.linkedin.com/in/eric-lucking-015765104/" target="_blank" rel="noopener noreferrer" style={{ color: T.warmGrey, fontWeight: 500 }}>Eric Lucking</a>.</span>
       </footer>
 
       {/* ── Nav guard modal — unsaved Energy-tab changes ─────────────────────── */}
