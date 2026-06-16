@@ -861,8 +861,17 @@ function downloadCsv(filename, rows) {
 function __subscribeCsv(fn) { __csvListeners.add(fn); return () => __csvListeners.delete(fn); }
 
 // Silent CSV download with NO modal fallback — for export buttons (vs templates).
-function directDownload(filename, rows) {
-  const csv = Papa.unparse(rows);
+// `fields` (optional) forces explicit column order. Needed for wide-format templates:
+// JS iterates integer-like object keys (e.g. "2022") before string keys, which would
+// otherwise push the year columns to the front of the CSV.
+function directDownload(filename, rows, fields) {
+  let csv;
+  if (fields) {
+    const data = rows.map(r => fields.map(f => r[f] ?? ''));
+    csv = Papa.unparse({ fields, data });
+  } else {
+    csv = Papa.unparse(rows);
+  }
   try {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
@@ -877,6 +886,33 @@ function directDownload(filename, rows) {
     document.body.appendChild(a); a.click();
     setTimeout(() => document.body.removeChild(a), 150);
   }
+}
+
+// Detect a wide-format time-series CSV (one column per Year-Month period, e.g.
+// "2024-01") and expand it to the long format the importers consume. Each period
+// cell becomes its own record with `year`, `month`, and `valueKey` (kwh / cost /
+// occupancy_pct) set. Long-format input (with `year` and `month` columns) passes
+// through unchanged, so existing CSVs and exports keep working.
+function expandTimeSeriesRows(rows, valueKey) {
+  if (!rows || !rows.length) return rows || [];
+  const cols = Object.keys(rows[0]);
+  const periodRe = /^(\d{4})-(\d{1,2})$/;
+  const isPeriodCol = c => periodRe.test((c || '').trim());
+  const periodCols = cols.filter(isPeriodCol);
+  const isWide = !cols.includes('year') && !cols.includes('month') && periodCols.length > 0;
+  if (!isWide) return rows;
+  const expanded = [];
+  rows.forEach(r => {
+    const base = {};
+    cols.forEach(c => { if (!isPeriodCol(c)) base[c] = r[c]; });
+    periodCols.forEach(pc => {
+      const v = r[pc];
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      const mm = pc.trim().match(periodRe);
+      expanded.push({ ...base, year: mm[1], month: String(parseInt(mm[2], 10)), [valueKey]: v });
+    });
+  });
+  return expanded;
 }
 
 // === Global storage write queue ===
@@ -1900,7 +1936,7 @@ function BuildingForm({ open, onClose, onSave, building, allBuildings }) {
     id: uid(), name: '', address: '', country: '', gia: '', alpha: 0.5, epc: '',
     latitude: '', longitude: '',
     assetClasses: [{ code: '', pct: 100 }],
-    heatingSystem: '', glazingType: '', lightingType: '', hasBMS: false, hasSolarPV: false, hasEfficientHVAC: false, hasDHWHeatPump: false, hasRoofInsulation: false, hasWallInsulation: false, hasAirSealing: false, availableRoofM2: '',
+    heatingSystem: '', glazingType: '', lightingType: '', hasBMS: false, hasSolarPV: false, hasEfficientHVAC: false, hasDHWHeatPump: false, hasRoofInsulation: false, hasWallInsulation: false, hasAirSealing: false, solarPvM2: '', availableRoofM2: '',
   });
   const [draft, setDraft] = useState(() => building || emptyDraft());
   const [submitted, setSubmitted] = useState(false);
@@ -2085,20 +2121,34 @@ function BuildingForm({ open, onClose, onSave, building, allBuildings }) {
             </label>
           ))}
         </div>
-        <div style={{ marginTop: 16 }}>
-          <Input
-            label="Available roof area for solar PV (m²)"
-            value={draft.availableRoofM2 ?? ''}
-            onChange={v => update({ availableRoofM2: v })}
-            type="number"
-            placeholder={draft.gia && draft.assetClasses?.length ? ('e.g. ' + (defaultSolarRoofM2(draft) ?? '')) : 'e.g. 250'}
-          />
-          <div style={{ fontFamily: T.body, fontSize: 11, color: T.warmGrey, marginTop: 4, lineHeight: 1.4 }}>
-            Roof area available for new or additional PV panels — excluding existing panels, plant, and access zones.
-            {(!draft.availableRoofM2 || draft.availableRoofM2 === '') && (() => {
-              const def = defaultSolarRoofM2(draft);
-              return def ? <span> If left blank, a default of <strong>{def.toLocaleString()} m²</strong> will be used when modelling solar PV.</span> : null;
-            })()}
+        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <Input
+              label="Existing solar PV area (m²)"
+              value={draft.solarPvM2 ?? ''}
+              onChange={v => update({ solarPvM2: v })}
+              type="number"
+              placeholder="e.g. 120"
+            />
+            <div style={{ fontFamily: T.body, fontSize: 11, color: T.warmGrey, marginTop: 4, lineHeight: 1.4 }}>
+              Roof area already occupied by installed panels. Informational — used to record what's in place, not in CRREM calculations.
+            </div>
+          </div>
+          <div>
+            <Input
+              label="Available roof area for solar PV (m²)"
+              value={draft.availableRoofM2 ?? ''}
+              onChange={v => update({ availableRoofM2: v })}
+              type="number"
+              placeholder={draft.gia && draft.assetClasses?.length ? ('e.g. ' + (defaultSolarRoofM2(draft) ?? '')) : 'e.g. 250'}
+            />
+            <div style={{ fontFamily: T.body, fontSize: 11, color: T.warmGrey, marginTop: 4, lineHeight: 1.4 }}>
+              Roof area available for new or additional PV panels — excluding existing panels, plant, and access zones.
+              {(!draft.availableRoofM2 || draft.availableRoofM2 === '') && (() => {
+                const def = defaultSolarRoofM2(draft);
+                return def ? <span> If left blank, a default of <strong>{def.toLocaleString()} m²</strong> will be used when modelling solar PV.</span> : null;
+              })()}
+            </div>
           </div>
         </div>
       </div>
@@ -2156,43 +2206,141 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
   // Build asset class options string for the template comment row
   const AC_OPTIONS = CRREM_DATA.asset_classes.map(a => a.name + ' (' + a.code + ')').join(' | ');
   const TEMPLATE_ROWS = [{
-    building_id: '(instructions)', building_name: 'Required — unique name',
+    building_name: 'Required — unique name',
+    building_id: 'Optional — leave blank; system assigns IDs. Only needed to group mixed-use rows.',
     address: 'Optional', country_code: 'e.g. UK (see CRREM country list)',
     gia_m2: 'Gross Internal Area in m²',
     asset_class_name: 'Choose one: ' + AC_OPTIONS,
-    asset_class_pct: '% of GIA for this asset class (rows with same building_id are summed; must total 100)',
+    asset_class_pct: '% of GIA for this asset class (rows with same building_name are summed; must total 100)',
     epc_rating: 'A+++/A++/A+/A/B/C/D/E/F/G or blank', alpha: '0–1 (fixed energy fraction; 0.5 if unsure)',
   }, {
-    building_id: 'BLDG-001', building_name: 'Example Office', address: '1 High Street, London',
+    building_name: 'Example Office', building_id: '',
+    address: '1 High Street, London',
     country_code: 'UK', gia_m2: 2500,
     asset_class_name: 'Office (OFF)',
     asset_class_pct: 100, epc_rating: 'C', alpha: 0.5,
   }, {
-    building_id: 'BLDG-002', building_name: 'Mixed-use Building', address: '5 Market Square, Manchester',
+    building_name: 'Mixed-use Building', building_id: '',
+    address: '5 Market Square, Manchester',
     country_code: 'UK', gia_m2: 4000,
     asset_class_name: 'Office (OFF)',
     asset_class_pct: 60, epc_rating: 'B', alpha: 0.5,
   }, {
-    building_id: 'BLDG-002', building_name: 'Mixed-use Building', address: '5 Market Square, Manchester',
+    building_name: 'Mixed-use Building', building_id: '',
+    address: '5 Market Square, Manchester',
     country_code: 'UK', gia_m2: 4000,
     asset_class_name: 'Retail — High Street (RHS)',
     asset_class_pct: 40, epc_rating: 'B', alpha: 0.5,
   }];
 
   const downloadTemplate = () => {
-    // Download pre-built xlsx with dropdowns (base64-encoded at module level)
     try {
-      const binary = atob(PORTFOLIO_TEMPLATE_XLSX_B64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'portfolio_template.xlsx'; a.style.display = 'none';
-      document.body.appendChild(a); a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
-      push('Template downloaded — open in Excel, fill in the Portfolio sheet, then save as CSV to import', 'success');
-    } catch {
+      const wb = XLSX.utils.book_new();
+      const mkFont = (bold=false, color='111827', sz=10) => ({ name:'Arial', bold, color:{rgb:color}, sz });
+      const mkFill = (rgb) => ({ patternType:'solid', fgColor:{rgb}, bgColor:{rgb} });
+      const mkBorder = (c='E4E7EC') => ({ top:{style:'thin',color:{rgb:c}}, bottom:{style:'thin',color:{rgb:c}}, left:{style:'thin',color:{rgb:c}}, right:{style:'thin',color:{rgb:c}} });
+
+      // ── Portfolio sheet ──────────────────────────────────────────────────────
+      const COLS = [
+        { key: 'building_name',     label: 'building_name',     width: 26, note: 'Required — unique name for the building' },
+        { key: 'building_id',       label: 'building_id',       width: 20, note: 'Optional — leave blank; only needed for mixed-use multi-row buildings' },
+        { key: 'address',           label: 'address',           width: 32, note: 'Optional — full postal address' },
+        { key: 'country_code',      label: 'country_code',      width: 14, note: 'See Country Codes sheet (e.g. UK, DE, FR)' },
+        { key: 'gia_m2',            label: 'gia_m2',            width: 12, note: 'Gross Internal Area in m²' },
+        { key: 'asset_class_code',  label: 'asset_class_code',  width: 18, note: 'See Asset Classes sheet (e.g. OFF, RMF, HOT)' },
+        { key: 'asset_class_pct',   label: 'asset_class_pct',   width: 16, note: '% of GIA for this asset class — must sum to 100 per building' },
+        { key: 'epc_rating',        label: 'epc_rating',        width: 12, note: 'A+++/A++/A+/A/B/C/D/E/F/G or blank' },
+        { key: 'alpha',             label: 'alpha',             width: 10, note: '0–1, fixed energy fraction. Use 0.5 if unsure.' },
+        { key: 'heating_system',    label: 'heating_system',    width: 20, note: 'gas_boiler | oil_boiler | heat_pump_air | heat_pump_ground | district_heating | electric_boiler | other' },
+        { key: 'glazing_type',      label: 'glazing_type',      width: 16, note: 'single | double | triple | low_e' },
+        { key: 'lighting_type',     label: 'lighting_type',     width: 16, note: 'led | fluorescent | mixed | incandescent' },
+        { key: 'has_bms',           label: 'has_bms',           width: 10, note: 'true or false' },
+        { key: 'has_solar_pv',      label: 'has_solar_pv',      width: 12, note: 'true or false' },
+        { key: 'solar_pv_m2',       label: 'solar_pv_m2',       width: 14, note: 'Area of currently installed PV panels in m²' },
+        { key: 'available_roof_m2', label: 'available_roof_m2', width: 18, note: 'Roof area available for new PV panels in m²' },
+        { key: 'has_efficient_hvac',label: 'has_efficient_hvac',width: 18, note: 'true or false' },
+        { key: 'has_dhw_heat_pump', label: 'has_dhw_heat_pump', width: 18, note: 'true or false' },
+        { key: 'has_roof_insulation',label:'has_roof_insulation',width: 20, note: 'true or false' },
+        { key: 'has_wall_insulation',label:'has_wall_insulation',width: 20, note: 'true or false' },
+        { key: 'has_air_sealing',   label: 'has_air_sealing',   width: 16, note: 'true or false' },
+      ];
+      const noteRow  = COLS.map(c => c.note);
+      const headerRow = COLS.map(c => c.label);
+      const example1 = { building_name:'Example Office', building_id:'', address:'1 High Street, London', country_code:'UK', gia_m2:2500, asset_class_code:'OFF', asset_class_pct:100, epc_rating:'C', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'led', has_bms:'false', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:250, has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' };
+      const example2 = { building_name:'Mixed-use Building', building_id:'', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'OFF', asset_class_pct:60, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' };
+      const example3 = { building_name:'Mixed-use Building', building_id:'', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'RHS', asset_class_pct:40, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_air_sealing:'false' };
+      const dataRows = [example1, example2, example3].map(r => COLS.map(c => r[c.key] ?? ''));
+      const ws = XLSX.utils.aoa_to_sheet([noteRow, headerRow, ...dataRows]);
+      ws['!cols'] = COLS.map(c => ({ wch: c.width }));
+      ws['!rows'] = [{ hpt: 24 }, { hpt: 18 }, { hpt: 15 }, { hpt: 15 }, { hpt: 15 }];
+      ws['!freeze'] = { xSplit: 0, ySplit: 2 };
+      const nRows = 2 + dataRows.length;
+      for (let R = 0; R < nRows; R++) {
+        for (let C = 0; C < COLS.length; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+          if (R === 0) ws[addr].s = { fill: mkFill('1D4ED8'), font: mkFont(false,'FFFFFF',9), alignment: { horizontal:'left', vertical:'center', wrapText:true }, border: mkBorder('2563EB') };
+          else if (R === 1) ws[addr].s = { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center', vertical:'center' }, border: mkBorder('374151') };
+          else ws[addr].s = { fill: mkFill(R%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left', vertical:'center' }, border: mkBorder() };
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws, 'Portfolio');
+
+      // ── Asset Classes reference sheet ────────────────────────────────────────
+      const acHeader = ['Code', 'Name', 'CRREM Pathway'];
+      const acData = CRREM_DATA.asset_classes.map(a => {
+        const pathwayMap = { RSF:'Residential', RMF:'Residential', OFF:'Office', RHS:'Retail', RSM:'Retail', RWB:'Retail', HOT:'Hotel', DWC:'Industrial', DWW:'Industrial', HEC:'Healthcare', LEI:'Leisure' };
+        return [a.code, a.name, pathwayMap[a.code] || 'Other'];
+      });
+      const wsAC = XLSX.utils.aoa_to_sheet([['Asset Class Codes'], acHeader, ...acData]);
+      wsAC['!cols'] = [{ wch: 10 }, { wch: 38 }, { wch: 22 }];
+      wsAC['!rows'] = [{ hpt: 16 }, { hpt: 16 }, ...acData.map(() => ({ hpt: 15 }))];
+      // Style header rows
+      [0,1].forEach(R => {
+        [0,1,2].forEach(C => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsAC[addr]) wsAC[addr] = { v: '', t: 's' };
+          wsAC[addr].s = R === 0
+            ? { fill: mkFill('3A7D5C'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'left' } }
+            : { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center' } };
+        });
+      });
+      acData.forEach((_, i) => {
+        [0,1,2].forEach(C => {
+          const addr = XLSX.utils.encode_cell({ r: i+2, c: C });
+          if (!wsAC[addr]) wsAC[addr] = { v: '', t: 's' };
+          wsAC[addr].s = { fill: mkFill(i%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left' }, border: mkBorder() };
+        });
+      });
+      XLSX.utils.book_append_sheet(wb, wsAC, 'Asset Classes');
+
+      // ── Country Codes reference sheet ────────────────────────────────────────
+      const ccHeader = ['Code', 'Country'];
+      const ccData = CRREM_DATA.countries.map(c => [c.code, c.name]);
+      const wsCC = XLSX.utils.aoa_to_sheet([['Country Codes'], ccHeader, ...ccData]);
+      wsCC['!cols'] = [{ wch: 10 }, { wch: 26 }];
+      wsCC['!rows'] = [{ hpt: 16 }, { hpt: 16 }, ...ccData.map(() => ({ hpt: 15 }))];
+      [0,1].forEach(R => {
+        [0,1].forEach(C => {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsCC[addr]) wsCC[addr] = { v: '', t: 's' };
+          wsCC[addr].s = R === 0
+            ? { fill: mkFill('1D4ED8'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'left' } }
+            : { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center' } };
+        });
+      });
+      ccData.forEach((_, i) => {
+        [0,1].forEach(C => {
+          const addr = XLSX.utils.encode_cell({ r: i+2, c: C });
+          if (!wsCC[addr]) wsCC[addr] = { v: '', t: 's' };
+          wsCC[addr].s = { fill: mkFill(i%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left' }, border: mkBorder() };
+        });
+      });
+      XLSX.utils.book_append_sheet(wb, wsCC, 'Country Codes');
+
+      XLSX.writeFile(wb, 'portfolio_template.xlsx', { cellStyles: true, bookSST: false });
+      push('Template downloaded — fill in the Portfolio sheet, then upload the saved CSV', 'success');
+    } catch (err) {
       push('Template download failed', 'error');
     }
   };
@@ -2613,7 +2761,9 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
     complete: (results) => {
       const rows = results.data;
       if (rows.length === 0) { push('CSV is empty', 'error'); return; }
-      const required = ['building_id', 'building_name', 'country_code', 'gia_m2', 'asset_class_pct'];
+      // building_id is optional — building_name is the primary key.
+      // building_id is only needed for multi-row mixed-use buildings in round-trip exports.
+      const required = ['building_name', 'country_code', 'gia_m2', 'asset_class_pct'];
       // Accept either asset_class_code or asset_class_name
       if (!('asset_class_code' in rows[0]) && !('asset_class_name' in rows[0])) {
         required.push('asset_class_code'); // will trigger the missing column error
@@ -2624,21 +2774,28 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
         return;
       }
 
-      // Group rows by building_id (skip the instructions header row if present)
+      // Group rows by building_name (primary key). building_id is optional —
+      // present in round-trip exports to support mixed-use multi-row buildings,
+      // but users filling in the template from scratch only need building_name.
       const grouped = {};
       rows.forEach(r => {
-        const bid = (r.building_id || '').trim();
-        if (!bid || bid === '(instructions)') return;
-        if (!grouped[bid]) {
-          grouped[bid] = {
-            id: uid(), name: (r.building_name || '').trim(), address: (r.address || '').trim(),
+        const name = (r.building_name || '').trim();
+        const bid  = (r.building_id  || '').trim();
+        if (bid === '(instructions)' || (!name && !bid)) return;
+        // Grouping key: use building_id when present (handles mixed-use multi-row),
+        // otherwise use building_name so users never need to invent IDs.
+        const groupKey = bid || name;
+        if (!groupKey) return;
+        if (!grouped[groupKey]) {
+          grouped[groupKey] = {
+            id: uid(), name: name || bid, address: (r.address || '').trim(),
             country: (r.country_code || '').trim().toUpperCase(),
             gia: parseFloat(r.gia_m2) || 0,
             alpha: parseFloat(r.alpha),
             epc: (r.epc_rating || '').trim(),
             assetClasses: [],
             // Tier-2 retrofit fields
-            heatingSystem:      (r.heating_system || '').trim(),            heatingSystem:      (r.heating_system     || '').trim(),
+            heatingSystem:      (r.heating_system     || '').trim(),
             glazingType:        (r.glazing_type        || '').trim(),
             lightingType:       (r.lighting_type       || '').trim(),
             hasBMS:             r.has_bms    === 'true' || r.has_bms    === 'TRUE'  || r.has_bms    === '1',
@@ -2651,7 +2808,7 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
             hasWallInsulation:  r.has_wall_insulation === 'true' || r.has_wall_insulation === 'TRUE' || r.has_wall_insulation === '1',
             hasAirSealing:      r.has_air_sealing === 'true' || r.has_air_sealing === 'TRUE' || r.has_air_sealing === '1',
           };
-          if (isNaN(grouped[bid].alpha)) grouped[bid].alpha = 0.5;
+          if (isNaN(grouped[groupKey].alpha)) grouped[groupKey].alpha = 0.5;
         }
         // Accept both asset_class_code (e.g. "OFF") and asset_class_name (e.g. "Office (OFF)" or "Office")
         let code = (r.asset_class_code || '').trim().toUpperCase();
@@ -2671,7 +2828,7 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
           }
         }
         const pct = parseFloat(r.asset_class_pct) || 0;
-        if (code && code !== '(INSTRUCTIONS)') grouped[bid].assetClasses.push({ code, pct });
+        if (code && code !== '(INSTRUCTIONS)') grouped[groupKey].assetClasses.push({ code, pct });
       });
 
       const imported = Object.values(grouped);
@@ -2697,13 +2854,15 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
         { col: 'has_wall_insulation', label: 'has_wall_insulation' },
         { col: 'has_air_sealing',     label: 'has_air_sealing' },
       ];
-      // Group raw rows by building_id to check consistency
+      // Group raw rows by the same groupKey used above (building_id if present, else building_name)
       const rawByBid = {};
       rows.forEach(r => {
-        const bid = (r.building_id || '').trim();
-        if (!bid || bid === '(instructions)') return;
-        if (!rawByBid[bid]) rawByBid[bid] = [];
-        rawByBid[bid].push(r);
+        const name = (r.building_name || '').trim();
+        const bid  = (r.building_id  || '').trim();
+        if (bid === '(instructions)' || (!name && !bid)) return;
+        const groupKey = bid || name;
+        if (!rawByBid[groupKey]) rawByBid[groupKey] = [];
+        rawByBid[groupKey].push(r);
       });
       const inconsistentBuildings = [];
       Object.entries(rawByBid).forEach(([bid, bRows]) => {
@@ -3108,12 +3267,35 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     }
   };
 
+  // Wide-format templates: one row per building (+ fuel), one column per Year-Month.
+  const TEMPLATE_YEARS = [2023, 2024];
+  const TEMPLATE_PERIODS = TEMPLATE_YEARS.flatMap(y =>
+    Array.from({ length: 12 }, (_, i) => y + '-' + String(i + 1).padStart(2, '0')));
+  // Mild seasonal swing (higher in winter) for heating fuels, so the example looks real.
+  const seasonalFactor = (period, on) => {
+    if (!on) return 1;
+    const mo = parseInt(period.slice(5), 10);
+    return 1 + 0.5 * Math.cos((mo - 1) / 12 * 2 * Math.PI);
+  };
+
+  const exportEnergyTemplate = () => {
+    const fields = ['building_name', 'building_id', 'fuel_type', ...TEMPLATE_PERIODS];
+    const fuels = [{ type: 'electricity', base: 5000, seasonal: false }, { type: 'natural_gas', base: 3000, seasonal: true }];
+    const rows = fuels.map(f => {
+      const row = { building_name: 'Example Building', building_id: '', fuel_type: f.type };
+      TEMPLATE_PERIODS.forEach(p => { row[p] = Math.round(f.base * seasonalFactor(p, f.seasonal)); });
+      return row;
+    });
+    directDownload('energy_template.csv', rows, fields);
+    push('Template downloaded — one row per building and fuel, one column per month; fill kWh', 'success');
+  };
+
   const exportOccupancyTemplate = () => {
-    downloadCsv('occupancy_template.csv', [
-      { building_id: 'BUILDING_ID', building_name: 'Building Name (optional)', year: 2024, month: 1, occupancy_pct: 85 },
-      { building_id: 'BUILDING_ID', building_name: '',                          year: 2024, month: 2, occupancy_pct: 85 },
-    ]);
-    push('Occupancy template downloaded', 'success');
+    const fields = ['building_name', 'building_id', ...TEMPLATE_PERIODS];
+    const row = { building_name: 'Example Building', building_id: '' };
+    TEMPLATE_PERIODS.forEach(p => { row[p] = 85; });
+    directDownload('occupancy_template.csv', [row], fields);
+    push('Template downloaded — one row per building, one column per month; fill occupancy %', 'success');
   };
 
   // ── Occupancy CSV upload ──────────────────────────────────────────────────
@@ -3123,11 +3305,15 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: (results) => {
-        const rows = results.data;
+        const rawRows = results.data;
+        if (!rawRows.length) { push('CSV is empty', 'error'); return; }
+        // Accept both wide (year columns) and long (year rows) layouts.
+        const rows = expandTimeSeriesRows(rawRows, 'occupancy_pct');
         if (!rows.length) { push('CSV is empty', 'error'); return; }
-        const required = ['building_id', 'year', 'month', 'occupancy_pct'];
+        const required = ['year', 'month', 'occupancy_pct'];
+        if (!('building_id' in rows[0]) && !('building_name' in rows[0])) required.push('building_name');
         const missing  = required.filter(c => !(c in rows[0]));
-        if (missing.length) { push('Missing columns: ' + missing.join(', ') + '. Required: building_id, year, month, occupancy_pct', 'error'); return; }
+        if (missing.length) { push('Missing columns: ' + missing.join(', ') + '. Required: building_name (or building_id), year, month, occupancy_pct', 'error'); return; }
 
         const newOMap = {};
         oRows.forEach(r => { newOMap[r.buildingId] = { ...r, cells: { ...r.cells } }; });
@@ -3150,17 +3336,20 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
           imported++;
         });
 
-        if (!imported) { push('No valid rows' + (unmatched > 0 ? ' — ' + unmatched + ' buildings not in portfolio' : ''), 'error'); e.target.value = ''; return; }
+        if (!imported) {
+          push('No records imported' + (unmatched > 0 ? ' — ' + unmatched + ' rows skipped (building not in portfolio)' : '') + '. Check that building names match your portfolio.', 'error');
+          e.target.value = ''; return;
+        }
         pushHist();
         setORows(Object.values(newOMap));
         setDirty(true);
-        push('Loaded ' + imported + ' occupancy records'
-          + (unmatched > 0 ? ', ' + unmatched + ' skipped (building not found)' : '')
-          + (skipped   > 0 ? ', ' + skipped   + ' skipped (invalid data)' : '')
+        push('Imported ' + imported + ' occupancy records'
+          + (unmatched > 0 ? ', ' + unmatched + ' rows skipped (building not in portfolio)' : '')
+          + (skipped   > 0 ? ', ' + skipped   + ' rows skipped (invalid data)' : '')
           + ' — click Save to commit.', unmatched > 0 || skipped > 0 ? 'warning' : 'success');
         e.target.value = '';
       },
-      error: () => { push('Failed to parse occupancy CSV', 'error'); e.target.value = ''; },
+      error: () => { push('Failed to parse CSV', 'error'); e.target.value = ''; },
     });
   };
 
@@ -3186,12 +3375,15 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   };
 
   const exportBillsTemplate = () => {
-    const rows = [
-      { building_id: 'BUILDING_ID', building_name: 'Building Name (optional)', year: 2024, month: 1, fuel_type: 'electricity', cost: 1250.00, currency: 'GBP' },
-      { building_id: 'BUILDING_ID', building_name: '', year: 2024, month: 1, fuel_type: 'natural_gas', cost: 320.50, currency: 'GBP' },
-    ];
-    downloadCsv('bills_template.csv', rows);
-    push('Template downloaded — fill in your data and upload', 'success');
+    const fields = ['building_name', 'building_id', 'fuel_type', 'currency', ...TEMPLATE_PERIODS];
+    const fuels = [{ type: 'electricity', base: 1250, seasonal: false }, { type: 'natural_gas', base: 320, seasonal: true }];
+    const rows = fuels.map(f => {
+      const row = { building_name: 'Example Building', building_id: '', fuel_type: f.type, currency: 'GBP' };
+      TEMPLATE_PERIODS.forEach(p => { row[p] = Math.round(f.base * seasonalFactor(p, f.seasonal)); });
+      return row;
+    });
+    directDownload('bills_template.csv', rows, fields);
+    push('Template downloaded — one row per building and fuel, one column per month; fill cost', 'success');
   };
 
   // ── Bills CSV upload ───────────────────────────────────────────────────────
@@ -3201,12 +3393,16 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: (results) => {
-        const rows = results.data;
+        const rawRows = results.data;
+        if (!rawRows.length) { push('CSV is empty', 'error'); return; }
+        // Accept both wide (year columns) and long (year rows) layouts.
+        const rows = expandTimeSeriesRows(rawRows, 'cost');
         if (!rows.length) { push('CSV is empty', 'error'); return; }
 
-        const required = ['building_id', 'year', 'month', 'fuel_type', 'cost', 'currency'];
+        const required = ['year', 'month', 'fuel_type', 'cost', 'currency'];
+        if (!('building_id' in rows[0]) && !('building_name' in rows[0])) required.push('building_name');
         const missing  = required.filter(c => !(c in rows[0]));
-        if (missing.length) { push('Missing columns: ' + missing.join(', ') + '. Required: building_id, year, month, fuel_type, cost, currency', 'error'); return; }
+        if (missing.length) { push('Missing columns: ' + missing.join(', ') + '. Required: building_name (or building_id), year, month, fuel_type, cost, currency', 'error'); return; }
 
         let imported = 0, skipped = 0, unmatched = 0;
         const newUserBills = [];
@@ -3246,7 +3442,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         });
 
         if (!imported) {
-          push('No valid rows found' + (unmatched > 0 ? ' — ' + unmatched + ' buildings not matched to portfolio' : ''), 'error');
+          push('No records imported' + (unmatched > 0 ? ' — ' + unmatched + ' rows skipped (building not in portfolio)' : '') + '. Check that building names match your portfolio.', 'error');
           e.target.value = '';
           return;
         }
@@ -3270,10 +3466,10 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         pushHist();
         setBRows(Object.values(bMap));
 
-        const msg = 'Imported ' + imported + ' bill records for ' + uploadedBids.size + ' buildings'
-          + (skipped  > 0 ? ', ' + skipped  + ' rows skipped (invalid data)' : '')
+        const msg = 'Imported ' + imported + ' bill records for ' + uploadedBids.size + ' building' + (uploadedBids.size !== 1 ? 's' : '')
+          + (skipped   > 0 ? ', ' + skipped   + ' rows skipped (invalid data)' : '')
           + (unmatched > 0 ? ', ' + unmatched + ' rows skipped (building not in portfolio)' : '')
-          + ' — inferred bills replaced for matched buildings.';
+          + ' — click Save to commit.';
         push(msg, unmatched > 0 || skipped > 0 ? 'warning' : 'success');
         e.target.value = '';
       },
@@ -3290,10 +3486,18 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: (results) => {
-        const rows = results.data;
+        const rawRows = results.data;
+        if (!rawRows.length) { push('CSV is empty', 'error'); return; }
+        // Accept both wide (year columns) and long (year rows) layouts.
+        const rows = expandTimeSeriesRows(rawRows, 'kwh');
         if (!rows.length) { push('CSV is empty', 'error'); return; }
-        // Detect required columns
-        const required = ['building_id','year','month','fuel_type','kwh'];
+        // building_id is optional — building_name is the primary key.
+        // building_id is accepted for backwards compat with exported data.
+        const required = ['year','month','fuel_type','kwh'];
+        // Must have at least one of building_id or building_name
+        if (!('building_id' in rows[0]) && !('building_name' in rows[0])) {
+          required.push('building_name');
+        }
         const missing = required.filter(c => !(c in rows[0]));
         if (missing.length) { push('Missing columns: ' + missing.join(', '), 'error'); return; }
 
@@ -3348,7 +3552,13 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         setERows(Object.values(newEMap));
         setORows(Object.values(newOMap));
         setDirty(true);
-        const msg = 'Loaded ' + imported + ' energy readings' + (unmatched > 0 ? ', ' + unmatched + ' rows skipped (building not found)' : '') + ' — click Save to commit. Upload a separate occupancy CSV to add occupancy data.';
+        if (!imported) {
+          push('No records imported' + (unmatched > 0 ? ' — ' + unmatched + ' rows skipped (building not in portfolio)' : '') + '. Check that building names match your portfolio.', 'error');
+          e.target.value = ''; return;
+        }
+        const msg = 'Imported ' + imported + ' energy readings'
+          + (unmatched > 0 ? ', ' + unmatched + ' rows skipped (building not in portfolio)' : '')
+          + ' — click Save to commit.';
         push(msg, unmatched > 0 ? 'warning' : 'success');
         e.target.value = '';
       },
@@ -4039,7 +4249,7 @@ if (buildings.length===0) return (
           <input ref={energyFileInputRef}    type="file" accept=".csv" style={{display:'none'}} onChange={handleEnergyCsvUpload} />
           <input ref={billsFileInputRef}     type="file" accept=".csv" style={{display:'none'}} onChange={handleBillsCsvUpload} />
           <input ref={occupancyFileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleOccupancyCsvUpload} />
-          <Button variant="secondary" icon={Download} size="sm" onClick={() => downloadCsv('energy_template.csv', [{ building_id: 'BUILDING_ID', building_name: 'Building Name (optional)', year: 2024, month: 1, fuel_type: 'electricity', fuel_name: 'Electricity', kwh: 5000 }])}>Download Excel template</Button>
+          <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={()=>energyFileInputRef.current?.click()}>Upload CSV</Button>
           {energy.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyData}>Export data</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addERow}>Add row</Button>
@@ -9457,7 +9667,7 @@ Three sections: Energy consumption, Occupancy, Utility bills. All share the same
 
 ### Section 1 — Energy consumption
 
-kWh per month, one row per (building × fuel). CSV columns: \`building_id, building_name, year, month, fuel_type, fuel_name, kwh\`.
+kWh per month. The downloadable template is in **wide format**: one row per building and fuel, with a separate column for each Year-Month period (e.g. \`2024-01, 2024-02, …\`). CSV columns: \`building_name, building_id (optional), fuel_type, 2024-01, 2024-02, …\`. The long format (\`building_name, year, month, fuel_type, kwh\`) is also accepted on upload.
 
 The tool needs **at least 12 consecutive months** of energy data to calculate annual carbon and energy intensity. A building with fewer than 12 uninterrupted months in the selected base period will not appear in Dashboard calculations.
 
@@ -9465,11 +9675,11 @@ Supported fuel types: \`electricity\`, \`natural_gas\`, \`oil\`, \`district_heat
 
 ### Section 2 — Occupancy
 
-Percentage of the building's theoretical maximum capacity that is occupied each month — **one row per building** (not per fuel). Think of it as the building's utilisation rate: 100% means fully occupied, 50% means half-empty. If missing, 100% is assumed.
+Percentage of the building's theoretical maximum capacity that is occupied each month — **one row per building** (no fuel column), with one column per Year-Month period like the energy template. Think of it as the building's utilisation rate: 100% means fully occupied, 50% means half-empty. If missing, 100% is assumed.
 
 ### Section 3 — Utility bills
 
-Cost per fuel per month. If no bills are provided for a building, costs are estimated from reference commercial tariffs and shown with an amber notice. Upload actual bills to replace them.
+Cost per fuel per month, with a currency per row. The template is in wide format: one row per building and fuel, with one column per Year-Month period. If no bills are provided for a building, costs are estimated from reference commercial tariffs and shown with an amber notice. Upload actual bills to replace them.
 
 ## Tab 3 — Emission factors
 
