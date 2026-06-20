@@ -888,16 +888,28 @@ function directDownload(filename, rows, fields) {
   }
 }
 
-// Detect a wide-format time-series CSV (one column per Year-Month period, e.g.
-// "2024-01") and expand it to the long format the importers consume. Each period
+// Detect a wide-format time-series CSV (one column per Month-Year period, e.g.
+// "01-2024") and expand it to the long format the importers consume. Each period
 // cell becomes its own record with `year`, `month`, and `valueKey` (kwh / cost /
 // occupancy_pct) set. Long-format input (with `year` and `month` columns) passes
-// through unchanged, so existing CSVs and exports keep working.
+// through unchanged, so existing CSVs and exports keep working. Both the current
+// European "MM-YYYY" format and the legacy "YYYY-MM" format (older exports) are
+// accepted on upload — the two patterns never collide since one side always has
+// 4 digits (year) and the other 1–2 (month).
 function expandTimeSeriesRows(rows, valueKey) {
   if (!rows || !rows.length) return rows || [];
   const cols = Object.keys(rows[0]);
-  const periodRe = /^(\d{4})-(\d{1,2})$/;
-  const isPeriodCol = c => periodRe.test((c || '').trim());
+  const reMonthYear = /^(\d{1,2})-(\d{4})$/; // MM-YYYY (current default)
+  const reYearMonth = /^(\d{4})-(\d{1,2})$/; // YYYY-MM (legacy)
+  const parsePeriod = c => {
+    const s = (c || '').trim();
+    let m = s.match(reMonthYear);
+    if (m) return { month: String(parseInt(m[1], 10)), year: m[2] };
+    m = s.match(reYearMonth);
+    if (m) return { month: String(parseInt(m[2], 10)), year: m[1] };
+    return null;
+  };
+  const isPeriodCol = c => parsePeriod(c) !== null;
   const periodCols = cols.filter(isPeriodCol);
   const isWide = !cols.includes('year') && !cols.includes('month') && periodCols.length > 0;
   if (!isWide) return rows;
@@ -908,8 +920,8 @@ function expandTimeSeriesRows(rows, valueKey) {
     periodCols.forEach(pc => {
       const v = r[pc];
       if (v === undefined || v === null || String(v).trim() === '') return;
-      const mm = pc.trim().match(periodRe);
-      expanded.push({ ...base, year: mm[1], month: String(parseInt(mm[2], 10)), [valueKey]: v });
+      const { year, month } = parsePeriod(pc);
+      expanded.push({ ...base, year, month, [valueKey]: v });
     });
   });
   return expanded;
@@ -980,23 +992,142 @@ async function downloadStyledTemplate({ filename, sheetName, columns, rows, drop
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
 }
 
+// Shared Portfolio sheet schema — used by BOTH the blank download template and the
+// data export, so the two stay in perfect parity (same columns, order, styling,
+// comments, dropdowns). building_id is intentionally NOT a column: building_name is
+// the only identifier a user needs to provide; the tool assigns IDs internally.
+function portfolioColumns() {
+  const listFormula = arr => '"' + arr.join(',') + '"';
+  return [
+    { key: 'building_name',       width: 26, note: 'Required — unique name for the building.' },
+    { key: 'address',             width: 32, note: 'Optional — full postal address (used for the map).' },
+    { key: 'country_code',        width: 14, note: 'Pick from the dropdown (see Lookups sheet).', dvRange: 'country' },
+    { key: 'latitude',            width: 12, note: 'Optional — decimal degrees (e.g. 51.5074). Leave blank to auto-geocode from the address.' },
+    { key: 'longitude',           width: 12, note: 'Optional — decimal degrees (e.g. -0.1278). Leave blank to auto-geocode from the address.' },
+    { key: 'gia_m2',              width: 12, note: 'Gross Internal Area in m².' },
+    { key: 'asset_class_code',    width: 18, note: 'Pick from the dropdown (see Lookups sheet).', dvRange: 'assetClass' },
+    { key: 'asset_class_pct',     width: 16, note: '% of GIA for this asset class. Rows sharing a building_name must total 100.' },
+    { key: 'epc_rating',          width: 12, note: 'Pick from the dropdown, or leave blank.', dvList: listFormula(EPC_RATINGS) },
+    { key: 'alpha',               width: 10, note: '0–1 fixed energy fraction. Use 0.5 if unsure.' },
+    { key: 'heating_system',      width: 20, note: 'Pick from the dropdown.', dvList: listFormula(HEATING_SYSTEM_OPTIONS.map(o => o.value)) },
+    { key: 'glazing_type',        width: 16, note: 'Pick from the dropdown.', dvList: listFormula(GLAZING_TYPE_OPTIONS.map(o => o.value)) },
+    { key: 'lighting_type',       width: 16, note: 'Pick from the dropdown.', dvList: listFormula(LIGHTING_TYPE_OPTIONS.map(o => o.value)) },
+    { key: 'has_bms',             width: 10, note: 'true or false', dvList: listFormula(['true', 'false']) },
+    { key: 'has_solar_pv',        width: 12, note: 'true or false', dvList: listFormula(['true', 'false']) },
+    { key: 'solar_pv_m2',         width: 14, note: 'Area of currently installed PV panels in m².' },
+    { key: 'available_roof_m2',   width: 18, note: 'Roof area available for new PV panels in m².' },
+    { key: 'has_efficient_hvac',  width: 18, note: 'true or false', dvList: listFormula(['true', 'false']) },
+    { key: 'has_dhw_heat_pump',   width: 18, note: 'true or false', dvList: listFormula(['true', 'false']) },
+    { key: 'has_roof_insulation', width: 20, note: 'true or false', dvList: listFormula(['true', 'false']) },
+    { key: 'has_wall_insulation', width: 20, note: 'true or false', dvList: listFormula(['true', 'false']) },
+    { key: 'has_air_sealing',     width: 16, note: 'true or false', dvList: listFormula(['true', 'false']) },
+  ];
+}
+
+// Builds and downloads the Portfolio workbook (Lookups + Portfolio sheets). Used by
+// both the blank template (rows = example data) and the data export (rows = real
+// buildings), so they are byte-for-byte the same structure/style/dropdowns —
+// only the row data differs.
+async function buildPortfolioWorkbook({ filename, rows, lastDataRow }) {
+  const ExcelJSmod = await import('exceljs');
+  const ExcelJS = ExcelJSmod.default || ExcelJSmod;
+  const wb = new ExcelJS.Workbook();
+  const ARGB = h => 'FF' + h;
+  const thin = { top: { style: 'thin', color: { argb: ARGB('E4E7EC') } }, left: { style: 'thin', color: { argb: ARGB('E4E7EC') } }, bottom: { style: 'thin', color: { argb: ARGB('E4E7EC') } }, right: { style: 'thin', color: { argb: ARGB('E4E7EC') } } };
+  const fillOf = hex => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB(hex) } });
+  const styleTitle = (cell, hex) => { cell.fill = fillOf(hex); cell.font = { name: 'Arial', bold: true, size: 11, color: { argb: ARGB('FFFFFF') } }; cell.alignment = { vertical: 'middle', horizontal: 'left' }; };
+  const styleHeaderRow = row => { row.height = 16; row.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name: 'Arial', bold: true, size: 10, color: { argb: ARGB('FFFFFF') } }; c.alignment = { vertical: 'middle', horizontal: 'left' }; c.border = thin; }); };
+  const styleBodyRow = (row, i) => { row.eachCell(c => { c.fill = fillOf(i % 2 === 0 ? 'F3F4F6' : 'FFFFFF'); c.font = { name: 'Arial', size: 10, color: { argb: ARGB('111827') } }; c.border = thin; c.alignment = { vertical: 'middle', horizontal: 'left' }; }); };
+
+  // ── Lookups sheet (asset classes + country codes together) ────────────────
+  const lk = wb.addWorksheet('Lookups');
+  lk.getColumn(1).width = 12; lk.getColumn(2).width = 40; lk.getColumn(3).width = 24;
+  const pathwayMap = { RSF: 'Residential', RMF: 'Residential', OFF: 'Office', RHS: 'Retail', RSM: 'Retail', RWB: 'Retail', HOT: 'Hotel', DWC: 'Industrial', DWW: 'Industrial', HEC: 'Healthcare', LEI: 'Leisure' };
+  const acTitle = lk.addRow(['Asset Class Codes']);
+  lk.mergeCells(acTitle.number, 1, acTitle.number, 3); styleTitle(lk.getCell('A' + acTitle.number), '3A7D5C');
+  const acHdr = lk.addRow(['Code', 'Name', 'CRREM Pathway']); styleHeaderRow(acHdr);
+  const acFirst = acHdr.number + 1;
+  CRREM_DATA.asset_classes.forEach((a, i) => { styleBodyRow(lk.addRow([a.code, a.name, pathwayMap[a.code] || 'Other']), i); });
+  const acLast = acFirst + CRREM_DATA.asset_classes.length - 1;
+  lk.addRow([]);
+  const ccTitle = lk.addRow(['Country Codes']);
+  lk.mergeCells(ccTitle.number, 1, ccTitle.number, 3); styleTitle(lk.getCell('A' + ccTitle.number), '1D4ED8');
+  const ccHdr = lk.addRow(['Code', 'Country']); styleHeaderRow(ccHdr);
+  const ccFirst = ccHdr.number + 1;
+  CRREM_DATA.countries.forEach((c, i) => { styleBodyRow(lk.addRow([c.code, c.name]), i); });
+  const ccLast = ccFirst + CRREM_DATA.countries.length - 1;
+  // Deliberately NOT setting a frozen view on this sheet. A `state:'frozen'` pane
+  // with no actual split (xSplit/ySplit both 0) writes an invalid <pane> element
+  // that fails Excel's strict file-integrity check — that was the root cause of
+  // the "Excel found unreadable content, repaired" dialog on this template.
+
+  const acRange = 'Lookups!$A$' + acFirst + ':$A$' + acLast;
+  const ccRange = 'Lookups!$A$' + ccFirst + ':$A$' + ccLast;
+
+  // ── Portfolio sheet ───────────────────────────────────────────────────────
+  const COLS = portfolioColumns();
+  COLS.forEach(c => {
+    if (c.dvRange === 'country') c.dv = ccRange;
+    else if (c.dvRange === 'assetClass') c.dv = acRange;
+    else if (c.dvList) c.dv = c.dvList;
+  });
+
+  const ws = wb.addWorksheet('Portfolio');
+  ws.columns = COLS.map(c => ({ header: c.key, key: c.key, width: c.width }));
+  const hr = ws.getRow(1); hr.height = 18;
+  hr.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name: 'Arial', bold: true, size: 10, color: { argb: ARGB('FFFFFF') } }; c.alignment = { vertical: 'middle', horizontal: 'center' }; c.border = thin; });
+  COLS.forEach((c, i) => { if (c.note) ws.getRow(1).getCell(i + 1).note = c.note; });
+
+  rows.forEach((rowObj, ri) => { const r = ws.addRow(rowObj); styleBodyRow(r, ri); });
+
+  // Apply dropdowns down to a generous row range — far enough for templates to be
+  // filled in, and far enough past the data for exports too.
+  const LAST_DV = Math.max(600, (lastDataRow || 0) + 50);
+  COLS.forEach((c, i) => {
+    if (!c.dv) return;
+    const letter = ws.getColumn(i + 1).letter;
+    ws.dataValidations.add(letter + '2:' + letter + LAST_DV, {
+      type: 'list', allowBlank: true, formulae: [c.dv],
+      showErrorMessage: true, errorStyle: 'warning',
+      errorTitle: 'Value not in list', error: 'Pick one of the listed values, or clear the cell.',
+    });
+  });
+  ws.views = [{ state: 'frozen', ySplit: 1 }]; // freeze header row only — a real split (ySplit > 0), valid
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
+}
+
 // Pivot long-format time-series records into wide rows for export: one row per
-// identity (e.g. building × fuel), one column per Year-Month period present in the
-// data. `records` items: { id: { col: val, ... }, year, month, value }. Returns the
+// identity (e.g. building × fuel), one column per Month-Year period present in the
+// data (European format, e.g. "01-2024"). `records` items:
+// { id: { col: val, ... }, year, month, value }. Returns the chronologically
 // sorted period list and the wide rows, matching the wide template/import layout.
+// Periods are sorted by parsed (year, month), NOT lexically — "MM-YYYY" strings
+// don't sort correctly as plain text (e.g. "02-2024" < "01-2025" lexically, which
+// is chronologically backwards).
 function pivotLongToWide(records) {
   const periodSet = new Set();
   const rowMap = new Map();
   records.forEach(({ id, year, month, value }) => {
     const y = parseInt(year), m = parseInt(month);
     if (!y || !m) return;
-    const period = y + '-' + String(m).padStart(2, '0');
+    const period = String(m).padStart(2, '0') + '-' + y;
     periodSet.add(period);
     const key = Object.values(id).join('||');
     if (!rowMap.has(key)) rowMap.set(key, { ...id });
     rowMap.get(key)[period] = value;
   });
-  const periods = [...periodSet].sort();
+  const periods = [...periodSet].sort((a, b) => {
+    const [ma, ya] = a.split('-').map(Number);
+    const [mb, yb] = b.split('-').map(Number);
+    return ya - yb || ma - mb;
+  });
   return { periods, rows: [...rowMap.values()] };
 }
 
@@ -2319,241 +2450,63 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
     setConfirmDelete(null);
   };
 
-  // Build asset class options string for the template comment row
-  const AC_OPTIONS = CRREM_DATA.asset_classes.map(a => a.name + ' (' + a.code + ')').join(' | ');
-  const TEMPLATE_ROWS = [{
-    building_name: 'Required — unique name',
-    building_id: 'Optional — leave blank; system assigns IDs. Only needed to group mixed-use rows.',
-    address: 'Optional', country_code: 'e.g. UK (see CRREM country list)',
-    gia_m2: 'Gross Internal Area in m²',
-    asset_class_name: 'Choose one: ' + AC_OPTIONS,
-    asset_class_pct: '% of GIA for this asset class (rows with same building_name are summed; must total 100)',
-    epc_rating: 'A+++/A++/A+/A/B/C/D/E/F/G or blank', alpha: '0–1 (fixed energy fraction; 0.5 if unsure)',
-  }, {
-    building_name: 'Example Office', building_id: '',
-    address: '1 High Street, London',
-    country_code: 'UK', gia_m2: 2500,
-    asset_class_name: 'Office (OFF)',
-    asset_class_pct: 100, epc_rating: 'C', alpha: 0.5,
-  }, {
-    building_name: 'Mixed-use Building', building_id: '',
-    address: '5 Market Square, Manchester',
-    country_code: 'UK', gia_m2: 4000,
-    asset_class_name: 'Office (OFF)',
-    asset_class_pct: 60, epc_rating: 'B', alpha: 0.5,
-  }, {
-    building_name: 'Mixed-use Building', building_id: '',
-    address: '5 Market Square, Manchester',
-    country_code: 'UK', gia_m2: 4000,
-    asset_class_name: 'Retail — High Street (RHS)',
-    asset_class_pct: 40, epc_rating: 'B', alpha: 0.5,
-  }];
-
   const downloadTemplate = async () => {
     try {
-      const ExcelJSmod = await import('exceljs');
-      const ExcelJS = ExcelJSmod.default || ExcelJSmod;
-      const wb = new ExcelJS.Workbook();
-
-      const ARGB = h => 'FF' + h;
-      const thin = { top:{style:'thin',color:{argb:ARGB('E4E7EC')}}, left:{style:'thin',color:{argb:ARGB('E4E7EC')}}, bottom:{style:'thin',color:{argb:ARGB('E4E7EC')}}, right:{style:'thin',color:{argb:ARGB('E4E7EC')}} };
-      const fillOf = hex => ({ type:'pattern', pattern:'solid', fgColor:{argb:ARGB(hex)} });
-      const styleTitle = (cell, hex) => { cell.fill = fillOf(hex); cell.font = { name:'Arial', bold:true, size:11, color:{argb:ARGB('FFFFFF')} }; cell.alignment = { vertical:'middle', horizontal:'left' }; };
-      const styleHeaderRow = row => { row.height = 16; row.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name:'Arial', bold:true, size:10, color:{argb:ARGB('FFFFFF')} }; c.alignment = { vertical:'middle', horizontal:'left' }; c.border = thin; }); };
-      const styleBodyRow = (row, i) => { row.eachCell(c => { c.fill = fillOf(i % 2 === 0 ? 'F3F4F6' : 'FFFFFF'); c.font = { name:'Arial', size:10, color:{argb:ARGB('111827')} }; c.border = thin; c.alignment = { vertical:'middle', horizontal:'left' }; }); };
-
-      // ── Lookups sheet (asset classes + country codes together) ────────────────
-      const lk = wb.addWorksheet('Lookups');
-      lk.getColumn(1).width = 12; lk.getColumn(2).width = 40; lk.getColumn(3).width = 24;
-
-      const pathwayMap = { RSF:'Residential', RMF:'Residential', OFF:'Office', RHS:'Retail', RSM:'Retail', RWB:'Retail', HOT:'Hotel', DWC:'Industrial', DWW:'Industrial', HEC:'Healthcare', LEI:'Leisure' };
-
-      const acTitle = lk.addRow(['Asset Class Codes']);
-      lk.mergeCells(acTitle.number, 1, acTitle.number, 3); styleTitle(lk.getCell('A' + acTitle.number), '3A7D5C');
-      const acHdr = lk.addRow(['Code', 'Name', 'CRREM Pathway']); styleHeaderRow(acHdr);
-      const acFirst = acHdr.number + 1;
-      CRREM_DATA.asset_classes.forEach((a, i) => { styleBodyRow(lk.addRow([a.code, a.name, pathwayMap[a.code] || 'Other']), i); });
-      const acLast = acFirst + CRREM_DATA.asset_classes.length - 1;
-
-      lk.addRow([]);
-      const ccTitle = lk.addRow(['Country Codes']);
-      lk.mergeCells(ccTitle.number, 1, ccTitle.number, 3); styleTitle(lk.getCell('A' + ccTitle.number), '1D4ED8');
-      const ccHdr = lk.addRow(['Code', 'Country']); styleHeaderRow(ccHdr);
-      const ccFirst = ccHdr.number + 1;
-      CRREM_DATA.countries.forEach((c, i) => { styleBodyRow(lk.addRow([c.code, c.name]), i); });
-      const ccLast = ccFirst + CRREM_DATA.countries.length - 1;
-      lk.views = [{ state:'frozen', ySplit: 0 }];
-
-      const acRange = 'Lookups!$A$' + acFirst + ':$A$' + acLast;
-      const ccRange = 'Lookups!$A$' + ccFirst + ':$A$' + ccLast;
-
-      // ── Portfolio sheet ───────────────────────────────────────────────────────
-      const listFormula = arr => '"' + arr.join(',') + '"';
-      const COLS = [
-        { key:'building_name',      width:26, note:'Required — unique name for the building. Replace the example rows with your own data.' },
-        { key:'building_id',        width:18, note:'Optional — leave blank; the tool assigns IDs. Only needed to group multiple rows of one mixed-use building.' },
-        { key:'address',            width:32, note:'Optional — full postal address (used for the map).' },
-        { key:'country_code',       width:14, note:'Pick from the dropdown (see Lookups sheet).', dv: ccRange },
-        { key:'gia_m2',             width:12, note:'Gross Internal Area in m².' },
-        { key:'asset_class_code',   width:18, note:'Pick from the dropdown (see Lookups sheet).', dv: acRange },
-        { key:'asset_class_pct',    width:16, note:'% of GIA for this asset class. Rows sharing a building_name must total 100.' },
-        { key:'epc_rating',         width:12, note:'Pick from the dropdown, or leave blank.', dv: listFormula(EPC_RATINGS) },
-        { key:'alpha',              width:10, note:'0–1 fixed energy fraction. Use 0.5 if unsure.' },
-        { key:'heating_system',     width:20, note:'Pick from the dropdown.', dv: listFormula(HEATING_SYSTEM_OPTIONS.map(o => o.value)) },
-        { key:'glazing_type',       width:16, note:'Pick from the dropdown.', dv: listFormula(GLAZING_TYPE_OPTIONS.map(o => o.value)) },
-        { key:'lighting_type',      width:16, note:'Pick from the dropdown.', dv: listFormula(LIGHTING_TYPE_OPTIONS.map(o => o.value)) },
-        { key:'has_bms',            width:10, note:'true or false', dv: listFormula(['true','false']) },
-        { key:'has_solar_pv',       width:12, note:'true or false', dv: listFormula(['true','false']) },
-        { key:'solar_pv_m2',        width:14, note:'Area of currently installed PV panels in m².' },
-        { key:'available_roof_m2',  width:18, note:'Roof area available for new PV panels in m².' },
-        { key:'has_efficient_hvac', width:18, note:'true or false', dv: listFormula(['true','false']) },
-        { key:'has_dhw_heat_pump',  width:18, note:'true or false', dv: listFormula(['true','false']) },
-        { key:'has_roof_insulation',width:20, note:'true or false', dv: listFormula(['true','false']) },
-        { key:'has_wall_insulation',width:20, note:'true or false', dv: listFormula(['true','false']) },
-        { key:'has_air_sealing',    width:16, note:'true or false', dv: listFormula(['true','false']) },
-      ];
-
-      const ws = wb.addWorksheet('Portfolio');
-      ws.columns = COLS.map(c => ({ header: c.key, key: c.key, width: c.width }));
-      const hr = ws.getRow(1); hr.height = 18;
-      hr.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name:'Arial', bold:true, size:10, color:{argb:ARGB('FFFFFF')} }; c.alignment = { vertical:'middle', horizontal:'center' }; c.border = thin; });
-      COLS.forEach((c, i) => { if (c.note) ws.getRow(1).getCell(i + 1).note = c.note; });
-
       const EX = [
-        { building_name:'Example Office', address:'1 High Street, London', country_code:'UK', gia_m2:2500, asset_class_code:'OFF', asset_class_pct:100, epc_rating:'C', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'led', has_bms:'false', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:250, has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' },
-        { building_name:'Mixed-use Building', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'OFF', asset_class_pct:60, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' },
-        { building_name:'Mixed-use Building', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'RHS', asset_class_pct:40, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' },
+        { building_name: 'Example Office', address: '1 High Street, London', country_code: 'UK', latitude: '', longitude: '', gia_m2: 2500, asset_class_code: 'OFF', asset_class_pct: 100, epc_rating: 'C', alpha: 0.5, heating_system: 'gas_boiler', glazing_type: 'double', lighting_type: 'led', has_bms: 'false', has_solar_pv: 'false', solar_pv_m2: '', available_roof_m2: 250, has_efficient_hvac: 'false', has_dhw_heat_pump: 'false', has_roof_insulation: 'false', has_wall_insulation: 'false', has_air_sealing: 'false' },
+        { building_name: 'Mixed-use Building', address: '5 Market Square, Manchester', country_code: 'UK', latitude: '', longitude: '', gia_m2: 4000, asset_class_code: 'OFF', asset_class_pct: 60, epc_rating: 'B', alpha: 0.5, heating_system: 'gas_boiler', glazing_type: 'double', lighting_type: 'mixed', has_bms: 'true', has_solar_pv: 'false', solar_pv_m2: '', available_roof_m2: '', has_efficient_hvac: 'false', has_dhw_heat_pump: 'false', has_roof_insulation: 'false', has_wall_insulation: 'false', has_air_sealing: 'false' },
+        { building_name: 'Mixed-use Building', address: '5 Market Square, Manchester', country_code: 'UK', latitude: '', longitude: '', gia_m2: 4000, asset_class_code: 'RHS', asset_class_pct: 40, epc_rating: 'B', alpha: 0.5, heating_system: 'gas_boiler', glazing_type: 'double', lighting_type: 'mixed', has_bms: 'true', has_solar_pv: 'false', solar_pv_m2: '', available_roof_m2: '', has_efficient_hvac: 'false', has_dhw_heat_pump: 'false', has_roof_insulation: 'false', has_wall_insulation: 'false', has_air_sealing: 'false' },
       ];
-      EX.forEach((ex, ri) => { const r = ws.addRow(ex); r.eachCell(c => { c.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB'); c.font = { name:'Arial', size:10, color:{argb:ARGB('374151')} }; c.border = thin; }); });
-
-      // Apply dropdowns down to a generous row range so users can fill many buildings.
-      const LAST_DV = 600;
-      COLS.forEach((c, i) => {
-        if (!c.dv) return;
-        const letter = ws.getColumn(i + 1).letter;
-        ws.dataValidations.add(letter + '2:' + letter + LAST_DV, {
-          type: 'list', allowBlank: true, formulae: [c.dv],
-          showErrorMessage: true, errorStyle: 'warning',
-          errorTitle: 'Value not in list', error: 'Pick one of the listed values, or clear the cell.',
-        });
-      });
-      ws.views = [{ state:'frozen', ySplit: 1 }];
-
-      const buf = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'portfolio_template.xlsx'; a.style.display = 'none';
-      document.body.appendChild(a); a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
+      await buildPortfolioWorkbook({ filename: 'portfolio_template.xlsx', rows: EX });
       push('Template downloaded — the Portfolio sheet has dropdowns for coded fields; fill it in and upload — Excel or CSV both work', 'success');
     } catch (err) {
       push('Template download failed', 'error');
     }
   };
 
-  const exportBuildings = () => {
-    const COLS = [
-      { key: 'building_id',         label: 'Building ID',          section: 'Identity',                width: 18 },
-      { key: 'building_name',       label: 'Building Name',        section: 'Identity',                width: 26 },
-      { key: 'address',             label: 'Address',              section: 'Identity',                width: 32 },
-      { key: 'country_code',        label: 'Country Code',         section: 'Identity',                width: 14 },
-      { key: 'latitude',            label: 'Latitude',             section: 'Identity',                width: 12 },
-      { key: 'longitude',           label: 'Longitude',            section: 'Identity',                width: 12 },
-      { key: 'gia_m2',              label: 'GIA (m\u00b2)',        section: 'Physical Characteristics', width: 12 },
-      { key: 'asset_class_code',    label: 'Asset Class Code',     section: 'Physical Characteristics', width: 18 },
-      { key: 'asset_class_pct',     label: 'Asset Class %',        section: 'Physical Characteristics', width: 14 },
-      { key: 'epc_rating',          label: 'EPC Rating',           section: 'Physical Characteristics', width: 12 },
-      { key: 'alpha',               label: 'Alpha (0\u20131)',     section: 'Physical Characteristics', width: 12 },
-      { key: 'heating_system',      label: 'Heating System',       section: 'Building Systems',         width: 22 },
-      { key: 'glazing_type',        label: 'Glazing Type',         section: 'Building Systems',         width: 18 },
-      { key: 'lighting_type',       label: 'Lighting Type',        section: 'Building Systems',         width: 18 },
-      { key: 'has_bms',             label: 'Has BMS',              section: 'Retrofit Flags & Areas',   width: 12 },
-      { key: 'has_solar_pv',        label: 'Has Solar PV',         section: 'Retrofit Flags & Areas',   width: 14 },
-      { key: 'has_efficient_hvac',  label: 'Has Efficient HVAC',   section: 'Retrofit Flags & Areas',   width: 20 },
-      { key: 'has_dhw_heat_pump',   label: 'Has DHW Heat Pump',    section: 'Retrofit Flags & Areas',   width: 18 },
-      { key: 'has_roof_insulation', label: 'Has Roof Insulation',  section: 'Retrofit Flags & Areas',   width: 20 },
-      { key: 'has_wall_insulation', label: 'Has Wall Insulation',  section: 'Retrofit Flags & Areas',   width: 20 },
-      { key: 'has_air_sealing',     label: 'Has Air Sealing',      section: 'Retrofit Flags & Areas',   width: 18 },
-      { key: 'solar_pv_m2',         label: 'Solar PV Area (m\u00b2)', section: 'Retrofit Flags & Areas', width: 18 },
-      { key: 'available_roof_m2',   label: 'Available Roof (m\u00b2)', section: 'Retrofit Flags & Areas', width: 20 },
-    ];
-    const SECTION_COLORS = {
-      'Identity':               '1E2530',
-      'Physical Characteristics':'3A7D5C',
-      'Building Systems':       '1D4ED8',
-      'Retrofit Flags & Areas': '7C3AED',
-    };
-    const mkBorder = (c='E4E7EC') => ({ top:{style:'thin',color:{rgb:c}}, bottom:{style:'thin',color:{rgb:c}}, left:{style:'thin',color:{rgb:c}}, right:{style:'thin',color:{rgb:c}} });
-    const mkFont = (bold=false, color='111827', sz=10) => ({ name:'Arial', bold, color:{rgb:color}, sz });
-    const mkFill = (rgb) => ({ patternType:'solid', fgColor:{rgb}, bgColor:{rgb} });
-
-    const rows = [];
-    buildings.forEach(b => {
-      (b.assetClasses || [{ code: '', pct: 100 }]).forEach(ac => {
-        rows.push({
-          building_id:          b.id,
-          building_name:        b.name,
-          address:              b.address || '',
-          country_code:         b.country || '',
-          latitude:             b.latitude != null && b.latitude !== '' ? parseFloat(b.latitude) : '',
-          longitude:            b.longitude != null && b.longitude !== '' ? parseFloat(b.longitude) : '',
-          gia_m2:               b.gia,
-          asset_class_code:     ac.code,
-          asset_class_pct:      ac.pct,
-          epc_rating:           b.epc || '',
-          alpha:                b.alpha,
-          heating_system:       b.heatingSystem      || '',
-          glazing_type:         b.glazingType        || '',
-          lighting_type:        b.lightingType       || '',
-          has_bms:              String(b.hasBMS             ?? false),
-          has_solar_pv:         String(b.hasSolarPV         ?? false),
-          has_efficient_hvac:   String(b.hasEfficientHVAC   ?? false),
-          has_dhw_heat_pump:    String(b.hasDHWHeatPump     ?? false),
-          has_roof_insulation:  String(b.hasRoofInsulation  ?? false),
-          has_wall_insulation:  String(b.hasWallInsulation  ?? false),
-          has_air_sealing:      String(b.hasAirSealing      ?? false),
-          solar_pv_m2:          b.solarPvM2 || 0,
-          available_roof_m2:    b.availableRoofM2 != null && b.availableRoofM2 !== '' ? parseFloat(b.availableRoofM2) : '',
+  const exportBuildings = async () => {
+    try {
+      const rows = [];
+      buildings.forEach(b => {
+        (b.assetClasses || [{ code: '', pct: 100 }]).forEach(ac => {
+          rows.push({
+            building_name:        b.name,
+            address:              b.address || '',
+            country_code:         b.country || '',
+            latitude:             b.latitude != null && b.latitude !== '' ? parseFloat(b.latitude) : '',
+            longitude:            b.longitude != null && b.longitude !== '' ? parseFloat(b.longitude) : '',
+            gia_m2:               b.gia,
+            asset_class_code:     ac.code,
+            asset_class_pct:      ac.pct,
+            epc_rating:           b.epc || '',
+            alpha:                b.alpha,
+            heating_system:       b.heatingSystem      || '',
+            glazing_type:         b.glazingType        || '',
+            lighting_type:        b.lightingType       || '',
+            has_bms:              String(b.hasBMS             ?? false),
+            has_solar_pv:         String(b.hasSolarPV         ?? false),
+            solar_pv_m2:          b.solarPvM2 || 0,
+            available_roof_m2:    b.availableRoofM2 != null && b.availableRoofM2 !== '' ? parseFloat(b.availableRoofM2) : '',
+            has_efficient_hvac:   String(b.hasEfficientHVAC   ?? false),
+            has_dhw_heat_pump:    String(b.hasDHWHeatPump     ?? false),
+            has_roof_insulation:  String(b.hasRoofInsulation  ?? false),
+            has_wall_insulation:  String(b.hasWallInsulation  ?? false),
+            has_air_sealing:      String(b.hasAirSealing      ?? false),
+          });
         });
       });
-    });
-
-    const bannerRow = COLS.map((c, ci) => (ci === 0 || COLS[ci-1].section !== c.section) ? c.section : '');
-    const headerRow = COLS.map(c => c.label);
-    const dataRows  = rows.map(r => COLS.map(c => r[c.key] ?? ''));
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([bannerRow, headerRow, ...dataRows]);
-
-    ws['!cols'] = COLS.map(c => ({ wch: c.width }));
-    ws['!rows'] = [{ hpt: 14 }, { hpt: 20 }, ...rows.map(() => ({ hpt: 16 }))];
-    ws['!freeze'] = { xSplit: 0, ySplit: 2 };
-
-    const nRows = 2 + rows.length;
-    for (let R = 0; R < nRows; R++) {
-      for (let C = 0; C < COLS.length; C++) {
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-        const col = COLS[C];
-        const secColor = SECTION_COLORS[col.section] || '1E2530';
-        if (R === 0) {
-          ws[addr].s = { fill: mkFill(secColor), font: mkFont(true,'FFFFFF',9), alignment: { horizontal:'left', vertical:'center' } };
-        } else if (R === 1) {
-          ws[addr].s = { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center', vertical:'center', wrapText:true }, border: mkBorder('374151') };
-        } else {
-          ws[addr].s = { fill: mkFill(R%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left', vertical:'center' }, border: mkBorder() };
-        }
-      }
+      // Same column set, styling, comments and dropdowns as the blank template —
+      // built from the same shared function, so export and template stay in sync.
+      await buildPortfolioWorkbook({ filename: 'portfolio_export.xlsx', rows, lastDataRow: rows.length });
+      push('Portfolio exported', 'success');
+    } catch (err) {
+      push('Export failed', 'error');
     }
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Portfolio');
-    XLSX.writeFile(wb, 'portfolio_export.xlsx', { cellStyles: true, bookSST: false });
-    push('Portfolio exported', 'success');
   };
 
     const totalGIA = buildings.reduce((s, b) => s + (parseFloat(b.gia) || 0), 0);
   const countriesUsed = new Set(buildings.map(b => b.country)).size;
+  const assetClassesUsed = new Set(buildings.flatMap(b => (b.assetClasses || []).map(ac => ac.code).filter(Boolean))).size;
 
   // Build a set of building IDs that have any renewables energy rows
   const buildingsWithRenewables = useMemo(() =>
@@ -2616,7 +2569,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
     <div style={{ padding: '32px 48px', maxWidth: 1300, margin: '0 auto' }}>
       <PageHeader
         title="Portfolio"
-        description="Add buildings to the portfolio. Use the CSV upload for bulk imports, or add individually with the form. For mixed-use buildings, repeat the row with each asset class — percentages must sum to 100%."
+        description="Add buildings to the portfolio. Download the Excel template for bulk imports, or add individually with the form. For mixed-use buildings, repeat the row with each asset class — percentages must sum to 100%."
         actions={<>
           <input ref={fileInputRef} type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={(e) => handleCsvUpload(e, buildings, setBuildings, push)} />
           <Button variant="secondary" size="sm" icon={Download} onClick={downloadTemplate}>Download Excel template</Button>
@@ -2650,10 +2603,9 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
           <StatCard label="Total GIA" value={(totalGIA / 1000).toFixed(1) + 'k'} sublabel="m²" />
           <StatCard label="Countries" value={countriesUsed.toString()} sublabel="In portfolio" />
           <StatCard
-            label="Issues"
-            value={(errBuildings.length + warnBuildings.length).toString()}
-            sublabel={errBuildings.length > 0 ? errBuildings.length + ' with errors' : warnBuildings.length > 0 ? 'Warnings only' : 'All clean'}
-            accent={errBuildings.length > 0 ? T.rose : warnBuildings.length > 0 ? T.amber : T.forest}
+            label="Asset classes"
+            value={assetClassesUsed.toString()}
+            sublabel="In portfolio"
           />
         </div>
       )}
@@ -2714,7 +2666,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
         <EmptyState
           icon={Building2}
           title="No buildings yet"
-          message="Start by uploading a CSV with your portfolio, or add buildings one at a time using the form."
+          message="Download the Excel template and upload it once filled in, or add buildings one at a time using the form."
           action={
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <Button variant="secondary" icon={Download} onClick={downloadTemplate}>Download Excel template</Button>
@@ -2896,6 +2848,8 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
           grouped[groupKey] = {
             id: uid(), name: name || bid, address: (r.address || '').trim(),
             country: (r.country_code || '').trim().toUpperCase(),
+            latitude:  r.latitude  !== undefined && r.latitude  !== '' && !isNaN(parseFloat(r.latitude))  ? parseFloat(r.latitude)  : null,
+            longitude: r.longitude !== undefined && r.longitude !== '' && !isNaN(parseFloat(r.longitude)) ? parseFloat(r.longitude) : null,
             gia: parseFloat(r.gia_m2) || 0,
             alpha: parseFloat(r.alpha),
             epc: (r.epc_rating || '').trim(),
@@ -3329,14 +3283,16 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
     const records = energy
       .filter(r => r.fuel !== 'occupancy' && r.kwh != null && r.kwh !== '')
+      // building_id is kept here only to disambiguate two buildings that happen to
+      // share a name — it's not shown as a column in the exported file.
       .map(r => ({ id: { building_name: bldgName(r.buildingId), building_id: r.buildingId, fuel_type: r.fuel }, year: r.year, month: r.month, value: r.kwh }));
     if (!records.length) { push('No energy data to export', 'warning'); return; }
     const { periods, rows } = pivotLongToWide(records);
     const columns = [
-      { key: 'building_name', width: 24 }, { key: 'building_id', width: 16 }, { key: 'fuel_type', width: 16 },
+      { key: 'building_name', width: 24 }, { key: 'fuel_type', width: 16 },
       ...periods.map(p => ({ key: p, width: 10 })),
     ];
-    downloadStyledTemplate({ filename: 'energy_export.xlsx', sheetName: 'Energy', columns, rows, frozenCols: 3 })
+    downloadStyledTemplate({ filename: 'energy_export.xlsx', sheetName: 'Energy', columns, rows, frozenCols: 2 })
       .then(() => push('Energy data exported — ' + rows.length + ' building/fuel rows', 'success'))
       .catch(() => push('Export failed', 'error'));
   };
@@ -3355,22 +3311,25 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     if (!records.length) { push('No occupancy data to export', 'warning'); return; }
     const { periods, rows } = pivotLongToWide(records);
     const columns = [
-      { key: 'building_name', width: 24 }, { key: 'building_id', width: 16 },
+      { key: 'building_name', width: 24 },
       ...periods.map(p => ({ key: p, width: 10 })),
     ];
-    downloadStyledTemplate({ filename: 'occupancy_export.xlsx', sheetName: 'Occupancy', columns, rows, frozenCols: 2 })
+    downloadStyledTemplate({ filename: 'occupancy_export.xlsx', sheetName: 'Occupancy', columns, rows, frozenCols: 1 })
       .then(() => push('Occupancy exported — ' + rows.length + ' buildings', 'success'))
       .catch(() => push('Export failed', 'error'));
   };
 
-  // Wide-format templates: one row per building (+ fuel), one column per Year-Month.
-  const TEMPLATE_YEARS = [2023, 2024];
+  // Wide-format templates: one row per building (+ fuel), one column per Month-Year
+  // (European format, e.g. "01-2024"). Years are based on the current date so the
+  // template is always recent — last year through this year — rather than a
+  // hardcoded range that goes stale.
+  const TEMPLATE_YEARS = (() => { const y = new Date().getFullYear(); return [y - 1, y]; })();
   const TEMPLATE_PERIODS = TEMPLATE_YEARS.flatMap(y =>
-    Array.from({ length: 12 }, (_, i) => y + '-' + String(i + 1).padStart(2, '0')));
+    Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0') + '-' + y));
   // Mild seasonal swing (higher in winter) for heating fuels, so the example looks real.
   const seasonalFactor = (period, on) => {
     if (!on) return 1;
-    const mo = parseInt(period.slice(5), 10);
+    const mo = parseInt(period.split('-')[0], 10);
     return 1 + 0.5 * Math.cos((mo - 1) / 12 * 2 * Math.PI);
   };
 
@@ -3379,18 +3338,19 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const exportEnergyTemplate = () => {
     const columns = [
       { key: 'building_name', width: 24, note: 'Required — must match a building name in your portfolio.' },
-      { key: 'building_id',   width: 16, note: 'Optional — leave blank; the tool matches on building_name.' },
       { key: 'fuel_type',     width: 16, note: 'Pick from the dropdown (includes any custom fuels you have added in the Emission factors tab).' },
-      ...periodCol('Enter kWh for this month. One column per Year-Month — add or remove columns to match your data range.'),
+      ...periodCol('Enter kWh for this month. One column per Month-Year — add or remove columns to match your data range.'),
     ];
-    const fuels = [{ type: 'electricity', base: 5000, seasonal: false }, { type: 'natural_gas', base: 3000, seasonal: true }];
-    const rows = fuels.map(f => {
-      const row = { building_name: 'Example Building', building_id: '', fuel_type: f.type };
+    // Example rows only — distinct from the `fuels` prop (which supplies the real
+    // dropdown list below). Do not name this `fuels`: it previously shadowed the
+    // prop and silently broke the fuel_type dropdown (mapped undefined .code).
+    const exampleFuels = [{ type: 'electricity', base: 5000, seasonal: false }, { type: 'natural_gas', base: 3000, seasonal: true }];
+    const rows = exampleFuels.map(f => {
+      const row = { building_name: 'Example Building', fuel_type: f.type };
       TEMPLATE_PERIODS.forEach(p => { row[p] = Math.round(f.base * seasonalFactor(p, f.seasonal)); });
       return row;
     });
-    const dropdowns = {};
-    downloadStyledTemplate({ filename: 'energy_template.xlsx', sheetName: 'Energy', columns, rows, dropdowns, lists: { fuel_type: fuels.map(f => f.code) }, frozenCols: 3 })
+    downloadStyledTemplate({ filename: 'energy_template.xlsx', sheetName: 'Energy', columns, rows, lists: { fuel_type: fuels.map(f => f.code) }, frozenCols: 2 })
       .then(() => push('Template downloaded — fill it in (one column per month), then upload — Excel or CSV both work', 'success'))
       .catch(() => push('Template download failed', 'error'));
   };
@@ -3398,12 +3358,11 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const exportOccupancyTemplate = () => {
     const columns = [
       { key: 'building_name', width: 24, note: 'Required — must match a building name in your portfolio.' },
-      { key: 'building_id',   width: 16, note: 'Optional — leave blank; the tool matches on building_name.' },
-      ...periodCol('Enter occupancy % (0–100) for this month. One column per Year-Month.'),
+      ...periodCol('Enter occupancy % (0–100) for this month. One column per Month-Year.'),
     ];
-    const row = { building_name: 'Example Building', building_id: '' };
+    const row = { building_name: 'Example Building' };
     TEMPLATE_PERIODS.forEach(p => { row[p] = 85; });
-    downloadStyledTemplate({ filename: 'occupancy_template.xlsx', sheetName: 'Occupancy', columns, rows: [row], frozenCols: 2 })
+    downloadStyledTemplate({ filename: 'occupancy_template.xlsx', sheetName: 'Occupancy', columns, rows: [row], frozenCols: 1 })
       .then(() => push('Template downloaded — fill it in (one column per month), then upload — Excel or CSV both work', 'success'))
       .catch(() => push('Template download failed', 'error'));
   };
@@ -3463,17 +3422,18 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const exportBillsData = () => {
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
     const records = bills.map(b => ({
+      // building_id kept internally for row-key uniqueness only — not shown as a column.
       id: { building_name: bldgName(b.buildingId), building_id: b.buildingId, fuel_type: b.fuel, currency: b.currency },
       year: b.year, month: b.month, value: b.cost,
     }));
     if (!records.length) { push('No bill data to export', 'warning'); return; }
     const { periods, rows } = pivotLongToWide(records);
     const columns = [
-      { key: 'building_name', width: 24 }, { key: 'building_id', width: 16 },
+      { key: 'building_name', width: 24 },
       { key: 'fuel_type', width: 16 }, { key: 'currency', width: 12 },
       ...periods.map(p => ({ key: p, width: 10 })),
     ];
-    downloadStyledTemplate({ filename: 'bills_export.xlsx', sheetName: 'Bills', columns, rows, frozenCols: 4 })
+    downloadStyledTemplate({ filename: 'bills_export.xlsx', sheetName: 'Bills', columns, rows, frozenCols: 3 })
       .then(() => push('Bills exported — ' + rows.length + ' building/fuel rows', 'success'))
       .catch(() => push('Export failed', 'error'));
   };
@@ -3481,21 +3441,21 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const exportBillsTemplate = () => {
     const columns = [
       { key: 'building_name', width: 24, note: 'Required — must match a building name in your portfolio.' },
-      { key: 'building_id',   width: 16, note: 'Optional — leave blank; the tool matches on building_name.' },
       { key: 'fuel_type',     width: 16, note: 'Pick from the dropdown (includes any custom fuels you have added in the Emission factors tab).' },
       { key: 'currency',      width: 12, note: 'Pick from the dropdown.' },
-      ...periodCol('Enter the cost for this month. One column per Year-Month.'),
+      ...periodCol('Enter the cost for this month. One column per Month-Year.'),
     ];
-    const fuels = [{ type: 'electricity', base: 1250, seasonal: false }, { type: 'natural_gas', base: 320, seasonal: true }];
-    const rows = fuels.map(f => {
-      const row = { building_name: 'Example Building', building_id: '', fuel_type: f.type, currency: 'GBP' };
+    // Example rows only — see note in exportEnergyTemplate about not shadowing `fuels`.
+    const exampleFuels = [{ type: 'electricity', base: 1250, seasonal: false }, { type: 'natural_gas', base: 320, seasonal: true }];
+    const rows = exampleFuels.map(f => {
+      const row = { building_name: 'Example Building', fuel_type: f.type, currency: 'GBP' };
       TEMPLATE_PERIODS.forEach(p => { row[p] = Math.round(f.base * seasonalFactor(p, f.seasonal)); });
       return row;
     });
     const dropdowns = {
       currency: quoteList(CURRENCIES.map(c => c.code)),
     };
-    downloadStyledTemplate({ filename: 'bills_template.xlsx', sheetName: 'Bills', columns, rows, dropdowns, lists: { fuel_type: fuels.filter(f => f.code !== 'renewables').map(f => f.code) }, frozenCols: 4 })
+    downloadStyledTemplate({ filename: 'bills_template.xlsx', sheetName: 'Bills', columns, rows, dropdowns, lists: { fuel_type: fuels.filter(f => f.code !== 'renewables').map(f => f.code) }, frozenCols: 3 })
       .then(() => push('Template downloaded — fill it in (one column per month), then upload — Excel or CSV both work', 'success'))
       .catch(() => push('Template download failed', 'error'));
   };
@@ -9802,7 +9762,7 @@ Three sections: Energy consumption, Occupancy, Utility bills. All share the same
 
 ### Section 1 — Energy consumption
 
-kWh per month. The downloadable template is in **wide format**: one row per building and fuel, with a separate column for each Year-Month period (e.g. \`2024-01, 2024-02, …\`). CSV columns: \`building_name, building_id (optional), fuel_type, 2024-01, 2024-02, …\`. The long format (\`building_name, year, month, fuel_type, kwh\`) is also accepted on upload.
+kWh per month. The downloadable template is in **wide format**: one row per building and fuel, with a separate column for each Month-Year period (European format, e.g. \`01-2024, 02-2024, …\`). CSV columns: \`building_name, fuel_type, 01-2024, 02-2024, …\`. The long format (\`building_name, year, month, fuel_type, kwh\`) is also accepted on upload.
 
 The tool needs **at least 12 consecutive months** of energy data to calculate annual carbon and energy intensity. A building with fewer than 12 uninterrupted months in the selected base period will not appear in Dashboard calculations.
 
@@ -9810,11 +9770,11 @@ Supported fuel types: \`electricity\`, \`natural_gas\`, \`oil\`, \`district_heat
 
 ### Section 2 — Occupancy
 
-Percentage of the building's theoretical maximum capacity that is occupied each month — **one row per building** (no fuel column), with one column per Year-Month period like the energy template. Think of it as the building's utilisation rate: 100% means fully occupied, 50% means half-empty. If missing, 100% is assumed.
+Percentage of the building's theoretical maximum capacity that is occupied each month — **one row per building** (no fuel column), with one column per Month-Year period like the energy template. Think of it as the building's utilisation rate: 100% means fully occupied, 50% means half-empty. If missing, 100% is assumed.
 
 ### Section 3 — Utility bills
 
-Cost per fuel per month, with a currency per row. The template is in wide format: one row per building and fuel, with one column per Year-Month period. If no bills are provided for a building, costs are estimated from reference commercial tariffs and shown with an amber notice. Upload actual bills to replace them.
+Cost per fuel per month, with a currency per row. The template is in wide format: one row per building and fuel, with one column per Month-Year period. If no bills are provided for a building, costs are estimated from reference commercial tariffs and shown with an amber notice. Upload actual bills to replace them.
 
 ## Tab 3 — Emission factors
 
