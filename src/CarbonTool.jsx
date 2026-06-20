@@ -915,6 +915,120 @@ function expandTimeSeriesRows(rows, valueKey) {
   return expanded;
 }
 
+const quoteList = arr => '"' + arr.join(',') + '"';
+
+// Build and download a styled .xlsx template that matches the Portfolio template's
+// look (dark header row, alternating row fills, thin borders, frozen header,
+// header-cell notes, optional dropdowns). Used for the wide-format energy,
+// occupancy and bills templates so they're visually consistent with Portfolio.
+async function downloadStyledTemplate({ filename, sheetName, columns, rows, dropdowns, lists, frozenCols = 0 }) {
+  const ExcelJSmod = await import('exceljs');
+  const ExcelJS = ExcelJSmod.default || ExcelJSmod;
+  const wb = new ExcelJS.Workbook();
+  const ARGB = h => 'FF' + h;
+  const thin = { top:{style:'thin',color:{argb:ARGB('E4E7EC')}}, left:{style:'thin',color:{argb:ARGB('E4E7EC')}}, bottom:{style:'thin',color:{argb:ARGB('E4E7EC')}}, right:{style:'thin',color:{argb:ARGB('E4E7EC')}} };
+  const fillOf = hex => ({ type:'pattern', pattern:'solid', fgColor:{argb:ARGB(hex)} });
+  const LAST_DV = 200;
+  const addDV = (colKey, formula) => {
+    const i = columns.findIndex(c => c.key === colKey);
+    if (i < 0) return;
+    const letter = ws.getColumn(i + 1).letter;
+    ws.dataValidations.add(letter + '2:' + letter + LAST_DV, {
+      type: 'list', allowBlank: true, formulae: [formula],
+      showErrorMessage: true, errorStyle: 'warning',
+      errorTitle: 'Value not in list', error: 'Pick one of the listed values, or clear the cell.',
+    });
+  };
+
+  const ws = wb.addWorksheet(sheetName);
+  ws.columns = columns.map(c => ({ header: c.key, key: c.key, width: c.width }));
+
+  const hr = ws.getRow(1); hr.height = 18;
+  hr.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name:'Arial', bold:true, size:10, color:{argb:ARGB('FFFFFF')} }; c.alignment = { vertical:'middle', horizontal:'center' }; c.border = thin; });
+  columns.forEach((c, i) => { if (c.note) ws.getRow(1).getCell(i + 1).note = c.note; });
+
+  rows.forEach((rowObj, ri) => {
+    const r = ws.addRow(rowObj);
+    r.eachCell(c => { c.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB'); c.font = { name:'Arial', size:10, color:{argb:ARGB('374151')} }; c.border = thin; });
+  });
+
+  // Inline-list dropdowns (short, fixed lists like true/false or currency codes).
+  if (dropdowns) Object.entries(dropdowns).forEach(([key, formula]) => addDV(key, formula));
+
+  // Range-based dropdowns (variable-length lists like fuel types, which include
+  // user-defined custom fuels). Values live on a hidden Lists sheet so there's no
+  // 255-character inline-list limit, and the dropdown reflects whatever fuels exist.
+  if (lists && Object.keys(lists).length) {
+    const ls = wb.addWorksheet('Lists');
+    ls.state = 'hidden';
+    let colIdx = 1;
+    Object.entries(lists).forEach(([key, values]) => {
+      const letter = ls.getColumn(colIdx).letter;
+      values.forEach((v, r) => { ls.getCell(letter + (r + 1)).value = v; });
+      if (values.length) addDV(key, 'Lists!$' + letter + '$1:$' + letter + '$' + values.length);
+      colIdx++;
+    });
+  }
+  ws.views = [{ state: 'frozen', xSplit: frozenCols, ySplit: 1 }];
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
+}
+
+// Pivot long-format time-series records into wide rows for export: one row per
+// identity (e.g. building × fuel), one column per Year-Month period present in the
+// data. `records` items: { id: { col: val, ... }, year, month, value }. Returns the
+// sorted period list and the wide rows, matching the wide template/import layout.
+function pivotLongToWide(records) {
+  const periodSet = new Set();
+  const rowMap = new Map();
+  records.forEach(({ id, year, month, value }) => {
+    const y = parseInt(year), m = parseInt(month);
+    if (!y || !m) return;
+    const period = y + '-' + String(m).padStart(2, '0');
+    periodSet.add(period);
+    const key = Object.values(id).join('||');
+    if (!rowMap.has(key)) rowMap.set(key, { ...id });
+    rowMap.get(key)[period] = value;
+  });
+  const periods = [...periodSet].sort();
+  return { periods, rows: [...rowMap.values()] };
+}
+
+// Parse an uploaded .csv or .xlsx file into row objects keyed by the header row,
+// then call onComplete({ data: rows }) (a Papa-compatible shape, so the existing
+// import handlers work unchanged). Lets users upload the styled .xlsx templates
+// directly without first saving them as CSV. For multi-sheet workbooks (the styled
+// templates carry a Lookups or hidden Lists sheet) it picks the first sheet whose
+// header row contains building_name or building_id.
+function parseUploadedTable(file, onComplete, onError) {
+  const nm = (file?.name || '').toLowerCase();
+  if (nm.endsWith('.xlsx') || nm.endsWith('.xls')) {
+    file.arrayBuffer().then(buf => {
+      try {
+        const wb = XLSX.read(buf, { type: 'array' });
+        let ws = null;
+        for (const sn of wb.SheetNames) {
+          const s = wb.Sheets[sn];
+          const hdr = (XLSX.utils.sheet_to_json(s, { header: 1 })[0] || []).map(String);
+          if (hdr.includes('building_name') || hdr.includes('building_id')) { ws = s; break; }
+        }
+        if (!ws) ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false })
+          .filter(r => Object.values(r).some(v => String(v).trim() !== ''));
+        onComplete({ data: rows });
+      } catch { if (onError) onError(); }
+    }).catch(() => { if (onError) onError(); });
+  } else {
+    Papa.parse(file, { header: true, skipEmptyLines: true, complete: onComplete, error: () => { if (onError) onError(); } });
+  }
+}
+
 // === Global storage write queue ===
 // === localStorage storage layer ===
 // Chunks data across multiple localStorage keys to handle the 5 MB per-item limit.
@@ -1108,6 +1222,9 @@ function validateBuilding(b, allBuildings = []) {
   else if (allBuildings.some(o => o.id !== b.id && o.name?.trim().toLowerCase() === b.name.trim().toLowerCase()))
     errors.push('Name must be unique within the portfolio');
   if (!b.address || !b.address.trim()) warnings.push('Address is empty');
+  const hasLat = b.latitude != null && String(b.latitude).trim() !== '' && !isNaN(parseFloat(b.latitude));
+  const hasLon = b.longitude != null && String(b.longitude).trim() !== '' && !isNaN(parseFloat(b.longitude));
+  if (!hasLat || !hasLon) warnings.push('Latitude/longitude not set — building will not appear on the map until coordinates are provided');
   if (!b.country) errors.push('Country is required');
   else if (!CRREM_DATA.countries.find(c => c.code === b.country)) errors.push('Country not in CRREM list');
   const gia = parseFloat(b.gia);
@@ -2174,7 +2291,6 @@ function BuildingForm({ open, onClose, onSave, building, allBuildings }) {
 // =================================================================
 // Portfolio Tab
 // =================================================================
-const PORTFOLIO_TEMPLATE_XLSX_B64 = "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";
 
 function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, setAssignments, push, onNavigate }) {
   const [editing, setEditing] = useState(null);
@@ -2233,113 +2349,104 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
     asset_class_pct: 40, epc_rating: 'B', alpha: 0.5,
   }];
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-      const mkFont = (bold=false, color='111827', sz=10) => ({ name:'Arial', bold, color:{rgb:color}, sz });
-      const mkFill = (rgb) => ({ patternType:'solid', fgColor:{rgb}, bgColor:{rgb} });
-      const mkBorder = (c='E4E7EC') => ({ top:{style:'thin',color:{rgb:c}}, bottom:{style:'thin',color:{rgb:c}}, left:{style:'thin',color:{rgb:c}}, right:{style:'thin',color:{rgb:c}} });
+      const ExcelJSmod = await import('exceljs');
+      const ExcelJS = ExcelJSmod.default || ExcelJSmod;
+      const wb = new ExcelJS.Workbook();
 
-      // ── Portfolio sheet ──────────────────────────────────────────────────────
+      const ARGB = h => 'FF' + h;
+      const thin = { top:{style:'thin',color:{argb:ARGB('E4E7EC')}}, left:{style:'thin',color:{argb:ARGB('E4E7EC')}}, bottom:{style:'thin',color:{argb:ARGB('E4E7EC')}}, right:{style:'thin',color:{argb:ARGB('E4E7EC')}} };
+      const fillOf = hex => ({ type:'pattern', pattern:'solid', fgColor:{argb:ARGB(hex)} });
+      const styleTitle = (cell, hex) => { cell.fill = fillOf(hex); cell.font = { name:'Arial', bold:true, size:11, color:{argb:ARGB('FFFFFF')} }; cell.alignment = { vertical:'middle', horizontal:'left' }; };
+      const styleHeaderRow = row => { row.height = 16; row.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name:'Arial', bold:true, size:10, color:{argb:ARGB('FFFFFF')} }; c.alignment = { vertical:'middle', horizontal:'left' }; c.border = thin; }); };
+      const styleBodyRow = (row, i) => { row.eachCell(c => { c.fill = fillOf(i % 2 === 0 ? 'F3F4F6' : 'FFFFFF'); c.font = { name:'Arial', size:10, color:{argb:ARGB('111827')} }; c.border = thin; c.alignment = { vertical:'middle', horizontal:'left' }; }); };
+
+      // ── Lookups sheet (asset classes + country codes together) ────────────────
+      const lk = wb.addWorksheet('Lookups');
+      lk.getColumn(1).width = 12; lk.getColumn(2).width = 40; lk.getColumn(3).width = 24;
+
+      const pathwayMap = { RSF:'Residential', RMF:'Residential', OFF:'Office', RHS:'Retail', RSM:'Retail', RWB:'Retail', HOT:'Hotel', DWC:'Industrial', DWW:'Industrial', HEC:'Healthcare', LEI:'Leisure' };
+
+      const acTitle = lk.addRow(['Asset Class Codes']);
+      lk.mergeCells(acTitle.number, 1, acTitle.number, 3); styleTitle(lk.getCell('A' + acTitle.number), '3A7D5C');
+      const acHdr = lk.addRow(['Code', 'Name', 'CRREM Pathway']); styleHeaderRow(acHdr);
+      const acFirst = acHdr.number + 1;
+      CRREM_DATA.asset_classes.forEach((a, i) => { styleBodyRow(lk.addRow([a.code, a.name, pathwayMap[a.code] || 'Other']), i); });
+      const acLast = acFirst + CRREM_DATA.asset_classes.length - 1;
+
+      lk.addRow([]);
+      const ccTitle = lk.addRow(['Country Codes']);
+      lk.mergeCells(ccTitle.number, 1, ccTitle.number, 3); styleTitle(lk.getCell('A' + ccTitle.number), '1D4ED8');
+      const ccHdr = lk.addRow(['Code', 'Country']); styleHeaderRow(ccHdr);
+      const ccFirst = ccHdr.number + 1;
+      CRREM_DATA.countries.forEach((c, i) => { styleBodyRow(lk.addRow([c.code, c.name]), i); });
+      const ccLast = ccFirst + CRREM_DATA.countries.length - 1;
+      lk.views = [{ state:'frozen', ySplit: 0 }];
+
+      const acRange = 'Lookups!$A$' + acFirst + ':$A$' + acLast;
+      const ccRange = 'Lookups!$A$' + ccFirst + ':$A$' + ccLast;
+
+      // ── Portfolio sheet ───────────────────────────────────────────────────────
+      const listFormula = arr => '"' + arr.join(',') + '"';
       const COLS = [
-        { key: 'building_name',     label: 'building_name',     width: 26, note: 'Required — unique name for the building' },
-        { key: 'building_id',       label: 'building_id',       width: 20, note: 'Optional — leave blank; only needed for mixed-use multi-row buildings' },
-        { key: 'address',           label: 'address',           width: 32, note: 'Optional — full postal address' },
-        { key: 'country_code',      label: 'country_code',      width: 14, note: 'See Country Codes sheet (e.g. UK, DE, FR)' },
-        { key: 'gia_m2',            label: 'gia_m2',            width: 12, note: 'Gross Internal Area in m²' },
-        { key: 'asset_class_code',  label: 'asset_class_code',  width: 18, note: 'See Asset Classes sheet (e.g. OFF, RMF, HOT)' },
-        { key: 'asset_class_pct',   label: 'asset_class_pct',   width: 16, note: '% of GIA for this asset class — must sum to 100 per building' },
-        { key: 'epc_rating',        label: 'epc_rating',        width: 12, note: 'A+++/A++/A+/A/B/C/D/E/F/G or blank' },
-        { key: 'alpha',             label: 'alpha',             width: 10, note: '0–1, fixed energy fraction. Use 0.5 if unsure.' },
-        { key: 'heating_system',    label: 'heating_system',    width: 20, note: 'gas_boiler | oil_boiler | heat_pump_air | heat_pump_ground | district_heating | electric_boiler | other' },
-        { key: 'glazing_type',      label: 'glazing_type',      width: 16, note: 'single | double | triple | low_e' },
-        { key: 'lighting_type',     label: 'lighting_type',     width: 16, note: 'led | fluorescent | mixed | incandescent' },
-        { key: 'has_bms',           label: 'has_bms',           width: 10, note: 'true or false' },
-        { key: 'has_solar_pv',      label: 'has_solar_pv',      width: 12, note: 'true or false' },
-        { key: 'solar_pv_m2',       label: 'solar_pv_m2',       width: 14, note: 'Area of currently installed PV panels in m²' },
-        { key: 'available_roof_m2', label: 'available_roof_m2', width: 18, note: 'Roof area available for new PV panels in m²' },
-        { key: 'has_efficient_hvac',label: 'has_efficient_hvac',width: 18, note: 'true or false' },
-        { key: 'has_dhw_heat_pump', label: 'has_dhw_heat_pump', width: 18, note: 'true or false' },
-        { key: 'has_roof_insulation',label:'has_roof_insulation',width: 20, note: 'true or false' },
-        { key: 'has_wall_insulation',label:'has_wall_insulation',width: 20, note: 'true or false' },
-        { key: 'has_air_sealing',   label: 'has_air_sealing',   width: 16, note: 'true or false' },
+        { key:'building_name',      width:26, note:'Required — unique name for the building. Replace the example rows with your own data.' },
+        { key:'building_id',        width:18, note:'Optional — leave blank; the tool assigns IDs. Only needed to group multiple rows of one mixed-use building.' },
+        { key:'address',            width:32, note:'Optional — full postal address (used for the map).' },
+        { key:'country_code',       width:14, note:'Pick from the dropdown (see Lookups sheet).', dv: ccRange },
+        { key:'gia_m2',             width:12, note:'Gross Internal Area in m².' },
+        { key:'asset_class_code',   width:18, note:'Pick from the dropdown (see Lookups sheet).', dv: acRange },
+        { key:'asset_class_pct',    width:16, note:'% of GIA for this asset class. Rows sharing a building_name must total 100.' },
+        { key:'epc_rating',         width:12, note:'Pick from the dropdown, or leave blank.', dv: listFormula(EPC_RATINGS) },
+        { key:'alpha',              width:10, note:'0–1 fixed energy fraction. Use 0.5 if unsure.' },
+        { key:'heating_system',     width:20, note:'Pick from the dropdown.', dv: listFormula(HEATING_SYSTEM_OPTIONS.map(o => o.value)) },
+        { key:'glazing_type',       width:16, note:'Pick from the dropdown.', dv: listFormula(GLAZING_TYPE_OPTIONS.map(o => o.value)) },
+        { key:'lighting_type',      width:16, note:'Pick from the dropdown.', dv: listFormula(LIGHTING_TYPE_OPTIONS.map(o => o.value)) },
+        { key:'has_bms',            width:10, note:'true or false', dv: listFormula(['true','false']) },
+        { key:'has_solar_pv',       width:12, note:'true or false', dv: listFormula(['true','false']) },
+        { key:'solar_pv_m2',        width:14, note:'Area of currently installed PV panels in m².' },
+        { key:'available_roof_m2',  width:18, note:'Roof area available for new PV panels in m².' },
+        { key:'has_efficient_hvac', width:18, note:'true or false', dv: listFormula(['true','false']) },
+        { key:'has_dhw_heat_pump',  width:18, note:'true or false', dv: listFormula(['true','false']) },
+        { key:'has_roof_insulation',width:20, note:'true or false', dv: listFormula(['true','false']) },
+        { key:'has_wall_insulation',width:20, note:'true or false', dv: listFormula(['true','false']) },
+        { key:'has_air_sealing',    width:16, note:'true or false', dv: listFormula(['true','false']) },
       ];
-      const noteRow  = COLS.map(c => c.note);
-      const headerRow = COLS.map(c => c.label);
-      const example1 = { building_name:'Example Office', building_id:'', address:'1 High Street, London', country_code:'UK', gia_m2:2500, asset_class_code:'OFF', asset_class_pct:100, epc_rating:'C', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'led', has_bms:'false', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:250, has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' };
-      const example2 = { building_name:'Mixed-use Building', building_id:'', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'OFF', asset_class_pct:60, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' };
-      const example3 = { building_name:'Mixed-use Building', building_id:'', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'RHS', asset_class_pct:40, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_air_sealing:'false' };
-      const dataRows = [example1, example2, example3].map(r => COLS.map(c => r[c.key] ?? ''));
-      const ws = XLSX.utils.aoa_to_sheet([noteRow, headerRow, ...dataRows]);
-      ws['!cols'] = COLS.map(c => ({ wch: c.width }));
-      ws['!rows'] = [{ hpt: 24 }, { hpt: 18 }, { hpt: 15 }, { hpt: 15 }, { hpt: 15 }];
-      ws['!freeze'] = { xSplit: 0, ySplit: 2 };
-      const nRows = 2 + dataRows.length;
-      for (let R = 0; R < nRows; R++) {
-        for (let C = 0; C < COLS.length; C++) {
-          const addr = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!ws[addr]) ws[addr] = { v: '', t: 's' };
-          if (R === 0) ws[addr].s = { fill: mkFill('1D4ED8'), font: mkFont(false,'FFFFFF',9), alignment: { horizontal:'left', vertical:'center', wrapText:true }, border: mkBorder('2563EB') };
-          else if (R === 1) ws[addr].s = { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center', vertical:'center' }, border: mkBorder('374151') };
-          else ws[addr].s = { fill: mkFill(R%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left', vertical:'center' }, border: mkBorder() };
-        }
-      }
-      XLSX.utils.book_append_sheet(wb, ws, 'Portfolio');
 
-      // ── Asset Classes reference sheet ────────────────────────────────────────
-      const acHeader = ['Code', 'Name', 'CRREM Pathway'];
-      const acData = CRREM_DATA.asset_classes.map(a => {
-        const pathwayMap = { RSF:'Residential', RMF:'Residential', OFF:'Office', RHS:'Retail', RSM:'Retail', RWB:'Retail', HOT:'Hotel', DWC:'Industrial', DWW:'Industrial', HEC:'Healthcare', LEI:'Leisure' };
-        return [a.code, a.name, pathwayMap[a.code] || 'Other'];
-      });
-      const wsAC = XLSX.utils.aoa_to_sheet([['Asset Class Codes'], acHeader, ...acData]);
-      wsAC['!cols'] = [{ wch: 10 }, { wch: 38 }, { wch: 22 }];
-      wsAC['!rows'] = [{ hpt: 16 }, { hpt: 16 }, ...acData.map(() => ({ hpt: 15 }))];
-      // Style header rows
-      [0,1].forEach(R => {
-        [0,1,2].forEach(C => {
-          const addr = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!wsAC[addr]) wsAC[addr] = { v: '', t: 's' };
-          wsAC[addr].s = R === 0
-            ? { fill: mkFill('3A7D5C'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'left' } }
-            : { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center' } };
-        });
-      });
-      acData.forEach((_, i) => {
-        [0,1,2].forEach(C => {
-          const addr = XLSX.utils.encode_cell({ r: i+2, c: C });
-          if (!wsAC[addr]) wsAC[addr] = { v: '', t: 's' };
-          wsAC[addr].s = { fill: mkFill(i%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left' }, border: mkBorder() };
-        });
-      });
-      XLSX.utils.book_append_sheet(wb, wsAC, 'Asset Classes');
+      const ws = wb.addWorksheet('Portfolio');
+      ws.columns = COLS.map(c => ({ header: c.key, key: c.key, width: c.width }));
+      const hr = ws.getRow(1); hr.height = 18;
+      hr.eachCell(c => { c.fill = fillOf('1E2530'); c.font = { name:'Arial', bold:true, size:10, color:{argb:ARGB('FFFFFF')} }; c.alignment = { vertical:'middle', horizontal:'center' }; c.border = thin; });
+      COLS.forEach((c, i) => { if (c.note) ws.getRow(1).getCell(i + 1).note = c.note; });
 
-      // ── Country Codes reference sheet ────────────────────────────────────────
-      const ccHeader = ['Code', 'Country'];
-      const ccData = CRREM_DATA.countries.map(c => [c.code, c.name]);
-      const wsCC = XLSX.utils.aoa_to_sheet([['Country Codes'], ccHeader, ...ccData]);
-      wsCC['!cols'] = [{ wch: 10 }, { wch: 26 }];
-      wsCC['!rows'] = [{ hpt: 16 }, { hpt: 16 }, ...ccData.map(() => ({ hpt: 15 }))];
-      [0,1].forEach(R => {
-        [0,1].forEach(C => {
-          const addr = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!wsCC[addr]) wsCC[addr] = { v: '', t: 's' };
-          wsCC[addr].s = R === 0
-            ? { fill: mkFill('1D4ED8'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'left' } }
-            : { fill: mkFill('1E2530'), font: mkFont(true,'FFFFFF',10), alignment: { horizontal:'center' } };
-        });
-      });
-      ccData.forEach((_, i) => {
-        [0,1].forEach(C => {
-          const addr = XLSX.utils.encode_cell({ r: i+2, c: C });
-          if (!wsCC[addr]) wsCC[addr] = { v: '', t: 's' };
-          wsCC[addr].s = { fill: mkFill(i%2===0 ? 'F3F4F6' : 'FFFFFF'), font: mkFont(false,'111827',10), alignment: { horizontal:'left' }, border: mkBorder() };
-        });
-      });
-      XLSX.utils.book_append_sheet(wb, wsCC, 'Country Codes');
+      const EX = [
+        { building_name:'Example Office', address:'1 High Street, London', country_code:'UK', gia_m2:2500, asset_class_code:'OFF', asset_class_pct:100, epc_rating:'C', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'led', has_bms:'false', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:250, has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' },
+        { building_name:'Mixed-use Building', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'OFF', asset_class_pct:60, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' },
+        { building_name:'Mixed-use Building', address:'5 Market Square, Manchester', country_code:'UK', gia_m2:4000, asset_class_code:'RHS', asset_class_pct:40, epc_rating:'B', alpha:0.5, heating_system:'gas_boiler', glazing_type:'double', lighting_type:'mixed', has_bms:'true', has_solar_pv:'false', solar_pv_m2:'', available_roof_m2:'', has_efficient_hvac:'false', has_dhw_heat_pump:'false', has_roof_insulation:'false', has_wall_insulation:'false', has_air_sealing:'false' },
+      ];
+      EX.forEach((ex, ri) => { const r = ws.addRow(ex); r.eachCell(c => { c.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB'); c.font = { name:'Arial', size:10, color:{argb:ARGB('374151')} }; c.border = thin; }); });
 
-      XLSX.writeFile(wb, 'portfolio_template.xlsx', { cellStyles: true, bookSST: false });
-      push('Template downloaded — fill in the Portfolio sheet, then upload the saved CSV', 'success');
+      // Apply dropdowns down to a generous row range so users can fill many buildings.
+      const LAST_DV = 600;
+      COLS.forEach((c, i) => {
+        if (!c.dv) return;
+        const letter = ws.getColumn(i + 1).letter;
+        ws.dataValidations.add(letter + '2:' + letter + LAST_DV, {
+          type: 'list', allowBlank: true, formulae: [c.dv],
+          showErrorMessage: true, errorStyle: 'warning',
+          errorTitle: 'Value not in list', error: 'Pick one of the listed values, or clear the cell.',
+        });
+      });
+      ws.views = [{ state:'frozen', ySplit: 1 }];
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'portfolio_template.xlsx'; a.style.display = 'none';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
+      push('Template downloaded — the Portfolio sheet has dropdowns for coded fields; fill it in and upload — Excel or CSV both work', 'success');
     } catch (err) {
       push('Template download failed', 'error');
     }
@@ -2511,9 +2618,9 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
         title="Portfolio"
         description="Add buildings to the portfolio. Use the CSV upload for bulk imports, or add individually with the form. For mixed-use buildings, repeat the row with each asset class — percentages must sum to 100%."
         actions={<>
-          <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={(e) => handleCsvUpload(e, buildings, setBuildings, push)} />
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={(e) => handleCsvUpload(e, buildings, setBuildings, push)} />
           <Button variant="secondary" size="sm" icon={Download} onClick={downloadTemplate}>Download Excel template</Button>
-          <Button variant="secondary" size="sm" icon={Upload} onClick={() => fileInputRef.current?.click()}>Upload CSV</Button>
+          <Button variant="secondary" size="sm" icon={Upload} onClick={() => fileInputRef.current?.click()}>Upload data</Button>
           {buildings.length > 0 && <Button variant="secondary" size="sm" icon={Download} onClick={exportBuildings}>Export data</Button>}
           {buildings.length > 0 && <Button variant="danger" size="sm" icon={Trash2} onClick={() => setConfirmClear(true)}>Clear all</Button>}
           <Button size="sm" icon={Plus} onClick={handleAdd}>Add building</Button>
@@ -2610,8 +2717,9 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
           message="Start by uploading a CSV with your portfolio, or add buildings one at a time using the form."
           action={
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <Button variant="secondary" icon={Download} onClick={downloadTemplate}>Download Excel template</Button>
+              <Button variant="secondary" icon={Upload} onClick={() => fileInputRef.current?.click()}>Upload data</Button>
               <Button icon={Plus} onClick={handleAdd}>Add building</Button>
-              <Button variant="secondary" icon={Upload} onClick={() => fileInputRef.current?.click()}>Upload CSV</Button>
             </div>
           }
         />
@@ -2756,11 +2864,9 @@ function BuildingsTable({ buildings, allBuildings, buildingValidationMap, onEdit
 function handleCsvUpload(e, buildings, setBuildings, push) {
   const file = e.target.files?.[0];
   if (!file) return;
-  Papa.parse(file, {
-    header: true, skipEmptyLines: true,
-    complete: (results) => {
+  parseUploadedTable(file, (results) => {
       const rows = results.data;
-      if (rows.length === 0) { push('CSV is empty', 'error'); return; }
+      if (rows.length === 0) { push('File is empty', 'error'); return; }
       // building_id is optional — building_name is the primary key.
       // building_id is only needed for multi-row mixed-use buildings in round-trip exports.
       const required = ['building_name', 'country_code', 'gia_m2', 'asset_class_pct'];
@@ -2910,8 +3016,7 @@ function handleCsvUpload(e, buildings, setBuildings, push) {
       push('Imported ' + imported.length + ' building' + (imported.length === 1 ? '' : 's') + ' (' + added + ' new, ' + replaced + ' updated)', 'success');
       e.target.value = '';
     },
-    error: () => push('Failed to parse CSV', 'error'),
-  });
+    () => push('Failed to parse file', 'error'));
 }
 
 // =================================================================
@@ -3216,55 +3321,46 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
 
   // Bills row helpers — defined at EnergyTab scope so they're accessible
   // both from the section heading and from inside the bills IIFE
-  const addBRow    = () => mutateB(prev => [...prev, { id: uid(), buildingId: buildings[0]?.id || '', fuel: fuels.find(f => f.isElectricity)?.code || fuels[0]?.code || '', currency: reportingCurrency, cells: {} }]);
+  const addBRow    = () => mutateB(prev => [...prev, { id: uid(), buildingId: prev[prev.length-1]?.buildingId || buildings[0]?.id || '', fuel: fuels.find(f => f.isElectricity)?.code || fuels[0]?.code || '', currency: prev[prev.length-1]?.currency || reportingCurrency, cells: {} }]);
   const deleteBRow = (ri) => mutateB(prev => prev.filter((_, i) => i !== ri));
   const updateBMeta = (ri, patch) => mutateB(prev => prev.map((r, i) => i === ri ? { ...r, ...patch } : r));
 
   const exportEnergyData = () => {
-    // Export energy rows
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
-    const fuelName = (code) => fuels.find(f => f.code === code)?.name || code;
-    const eRows_export = energy.filter(r => r.fuel !== 'occupancy').map(r => ({
-      building_id: r.buildingId,
-      building_name: bldgName(r.buildingId),
-      year: r.year, month: r.month,
-      fuel_type: r.fuel,
-      fuel_name: fuelName(r.fuel),
-      kwh: r.kwh,
-    }));
-    if (eRows_export.length > 0) {
-      directDownload('energy_export.csv', eRows_export);
-      push('Energy data exported — ' + eRows_export.length + ' records', 'success');
-    } else {
-      push('No energy data to export', 'warning');
-    }
+    const records = energy
+      .filter(r => r.fuel !== 'occupancy' && r.kwh != null && r.kwh !== '')
+      .map(r => ({ id: { building_name: bldgName(r.buildingId), building_id: r.buildingId, fuel_type: r.fuel }, year: r.year, month: r.month, value: r.kwh }));
+    if (!records.length) { push('No energy data to export', 'warning'); return; }
+    const { periods, rows } = pivotLongToWide(records);
+    const columns = [
+      { key: 'building_name', width: 24 }, { key: 'building_id', width: 16 }, { key: 'fuel_type', width: 16 },
+      ...periods.map(p => ({ key: p, width: 10 })),
+    ];
+    downloadStyledTemplate({ filename: 'energy_export.xlsx', sheetName: 'Energy', columns, rows, frozenCols: 3 })
+      .then(() => push('Energy data exported — ' + rows.length + ' building/fuel rows', 'success'))
+      .catch(() => push('Export failed', 'error'));
   };
 
   const exportOccupancyData = () => {
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
-    const rows = [];
+    const seen = new Set();
+    const records = [];
     energy.forEach(r => {
       if (r.occupancy == null || r.occupancy === '') return;
-      // deduplicate: one row per building/month
       const key = r.buildingId + '|' + r.year + '|' + r.month;
-      if (!rows._seen) rows._seen = new Set();
-      if (rows._seen.has(key)) return;
-      rows._seen.add(key);
-      rows.push({
-        building_id:   r.buildingId,
-        building_name: bldgName(r.buildingId),
-        year:          r.year,
-        month:         r.month,
-        occupancy_pct: r.occupancy,
-      });
+      if (seen.has(key)) return;
+      seen.add(key);
+      records.push({ id: { building_name: bldgName(r.buildingId), building_id: r.buildingId }, year: r.year, month: r.month, value: r.occupancy });
     });
-    delete rows._seen;
-    if (rows.length > 0) {
-      directDownload('occupancy_export.csv', rows);
-      push('Occupancy exported — ' + rows.length + ' records', 'success');
-    } else {
-      push('No occupancy data to export', 'warning');
-    }
+    if (!records.length) { push('No occupancy data to export', 'warning'); return; }
+    const { periods, rows } = pivotLongToWide(records);
+    const columns = [
+      { key: 'building_name', width: 24 }, { key: 'building_id', width: 16 },
+      ...periods.map(p => ({ key: p, width: 10 })),
+    ];
+    downloadStyledTemplate({ filename: 'occupancy_export.xlsx', sheetName: 'Occupancy', columns, rows, frozenCols: 2 })
+      .then(() => push('Occupancy exported — ' + rows.length + ' buildings', 'success'))
+      .catch(() => push('Export failed', 'error'));
   };
 
   // Wide-format templates: one row per building (+ fuel), one column per Year-Month.
@@ -3278,33 +3374,45 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     return 1 + 0.5 * Math.cos((mo - 1) / 12 * 2 * Math.PI);
   };
 
+  const periodCol = (note0) => TEMPLATE_PERIODS.map((p, i) => ({ key: p, width: 10, note: i === 0 ? note0 : undefined }));
+
   const exportEnergyTemplate = () => {
-    const fields = ['building_name', 'building_id', 'fuel_type', ...TEMPLATE_PERIODS];
+    const columns = [
+      { key: 'building_name', width: 24, note: 'Required — must match a building name in your portfolio.' },
+      { key: 'building_id',   width: 16, note: 'Optional — leave blank; the tool matches on building_name.' },
+      { key: 'fuel_type',     width: 16, note: 'Pick from the dropdown (includes any custom fuels you have added in the Emission factors tab).' },
+      ...periodCol('Enter kWh for this month. One column per Year-Month — add or remove columns to match your data range.'),
+    ];
     const fuels = [{ type: 'electricity', base: 5000, seasonal: false }, { type: 'natural_gas', base: 3000, seasonal: true }];
     const rows = fuels.map(f => {
       const row = { building_name: 'Example Building', building_id: '', fuel_type: f.type };
       TEMPLATE_PERIODS.forEach(p => { row[p] = Math.round(f.base * seasonalFactor(p, f.seasonal)); });
       return row;
     });
-    directDownload('energy_template.csv', rows, fields);
-    push('Template downloaded — one row per building and fuel, one column per month; fill kWh', 'success');
+    const dropdowns = {};
+    downloadStyledTemplate({ filename: 'energy_template.xlsx', sheetName: 'Energy', columns, rows, dropdowns, lists: { fuel_type: fuels.map(f => f.code) }, frozenCols: 3 })
+      .then(() => push('Template downloaded — fill it in (one column per month), then upload — Excel or CSV both work', 'success'))
+      .catch(() => push('Template download failed', 'error'));
   };
 
   const exportOccupancyTemplate = () => {
-    const fields = ['building_name', 'building_id', ...TEMPLATE_PERIODS];
+    const columns = [
+      { key: 'building_name', width: 24, note: 'Required — must match a building name in your portfolio.' },
+      { key: 'building_id',   width: 16, note: 'Optional — leave blank; the tool matches on building_name.' },
+      ...periodCol('Enter occupancy % (0–100) for this month. One column per Year-Month.'),
+    ];
     const row = { building_name: 'Example Building', building_id: '' };
     TEMPLATE_PERIODS.forEach(p => { row[p] = 85; });
-    directDownload('occupancy_template.csv', [row], fields);
-    push('Template downloaded — one row per building, one column per month; fill occupancy %', 'success');
+    downloadStyledTemplate({ filename: 'occupancy_template.xlsx', sheetName: 'Occupancy', columns, rows: [row], frozenCols: 2 })
+      .then(() => push('Template downloaded — fill it in (one column per month), then upload — Excel or CSV both work', 'success'))
+      .catch(() => push('Template download failed', 'error'));
   };
 
   // ── Occupancy CSV upload ──────────────────────────────────────────────────
   const handleOccupancyCsvUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: (results) => {
+    parseUploadedTable(file, (results) => {
         const rawRows = results.data;
         if (!rawRows.length) { push('CSV is empty', 'error'); return; }
         // Accept both wide (year columns) and long (year rows) layouts.
@@ -3349,50 +3457,54 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
           + ' — click Save to commit.', unmatched > 0 || skipped > 0 ? 'warning' : 'success');
         e.target.value = '';
       },
-      error: () => { push('Failed to parse CSV', 'error'); e.target.value = ''; },
-    });
+      () => { push('Failed to parse file', 'error'); e.target.value = ''; });
   };
 
   const exportBillsData = () => {
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
-    const rows = bills
-      .map(b => ({
-        building_id:   b.buildingId,
-        building_name: bldgName(b.buildingId),
-        year:          b.year,
-        month:         b.month,
-        fuel_type:     b.fuel,
-        cost:          b.cost,
-        currency:      b.currency,
-        inferred:      b.inferred ? 'yes' : 'no',
-      }));
-    if (rows.length > 0) {
-      directDownload('bills_export.csv', rows);
-      push('Bills exported — ' + rows.length + ' records', 'success');
-    } else {
-      push('No bill data to export', 'warning');
-    }
+    const records = bills.map(b => ({
+      id: { building_name: bldgName(b.buildingId), building_id: b.buildingId, fuel_type: b.fuel, currency: b.currency },
+      year: b.year, month: b.month, value: b.cost,
+    }));
+    if (!records.length) { push('No bill data to export', 'warning'); return; }
+    const { periods, rows } = pivotLongToWide(records);
+    const columns = [
+      { key: 'building_name', width: 24 }, { key: 'building_id', width: 16 },
+      { key: 'fuel_type', width: 16 }, { key: 'currency', width: 12 },
+      ...periods.map(p => ({ key: p, width: 10 })),
+    ];
+    downloadStyledTemplate({ filename: 'bills_export.xlsx', sheetName: 'Bills', columns, rows, frozenCols: 4 })
+      .then(() => push('Bills exported — ' + rows.length + ' building/fuel rows', 'success'))
+      .catch(() => push('Export failed', 'error'));
   };
 
   const exportBillsTemplate = () => {
-    const fields = ['building_name', 'building_id', 'fuel_type', 'currency', ...TEMPLATE_PERIODS];
+    const columns = [
+      { key: 'building_name', width: 24, note: 'Required — must match a building name in your portfolio.' },
+      { key: 'building_id',   width: 16, note: 'Optional — leave blank; the tool matches on building_name.' },
+      { key: 'fuel_type',     width: 16, note: 'Pick from the dropdown (includes any custom fuels you have added in the Emission factors tab).' },
+      { key: 'currency',      width: 12, note: 'Pick from the dropdown.' },
+      ...periodCol('Enter the cost for this month. One column per Year-Month.'),
+    ];
     const fuels = [{ type: 'electricity', base: 1250, seasonal: false }, { type: 'natural_gas', base: 320, seasonal: true }];
     const rows = fuels.map(f => {
       const row = { building_name: 'Example Building', building_id: '', fuel_type: f.type, currency: 'GBP' };
       TEMPLATE_PERIODS.forEach(p => { row[p] = Math.round(f.base * seasonalFactor(p, f.seasonal)); });
       return row;
     });
-    directDownload('bills_template.csv', rows, fields);
-    push('Template downloaded — one row per building and fuel, one column per month; fill cost', 'success');
+    const dropdowns = {
+      currency: quoteList(CURRENCIES.map(c => c.code)),
+    };
+    downloadStyledTemplate({ filename: 'bills_template.xlsx', sheetName: 'Bills', columns, rows, dropdowns, lists: { fuel_type: fuels.filter(f => f.code !== 'renewables').map(f => f.code) }, frozenCols: 4 })
+      .then(() => push('Template downloaded — fill it in (one column per month), then upload — Excel or CSV both work', 'success'))
+      .catch(() => push('Template download failed', 'error'));
   };
 
   // ── Bills CSV upload ───────────────────────────────────────────────────────
   const handleBillsCsvUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: (results) => {
+    parseUploadedTable(file, (results) => {
         const rawRows = results.data;
         if (!rawRows.length) { push('CSV is empty', 'error'); return; }
         // Accept both wide (year columns) and long (year rows) layouts.
@@ -3411,7 +3523,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
           const year  = parseInt(r.year);
           const month = parseInt(r.month);
           const cost  = parseFloat(r.cost);
-          if (!year || !month || isNaN(cost)) { skipped++; return; }
+          if (!year || !month || isNaN(cost) || cost < 0) { skipped++; return; }
 
           // Resolve building
           let bId = r.building_id?.trim();
@@ -3473,7 +3585,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         push(msg, unmatched > 0 || skipped > 0 ? 'warning' : 'success');
         e.target.value = '';
       },
-    });
+      () => push('Failed to parse file', 'error'));
   };
 
   // ── Energy CSV upload ─────────────────────────────────────────────────────
@@ -3483,9 +3595,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const handleEnergyCsvUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: (results) => {
+    parseUploadedTable(file, (results) => {
         const rawRows = results.data;
         if (!rawRows.length) { push('CSV is empty', 'error'); return; }
         // Accept both wide (year columns) and long (year rows) layouts.
@@ -3509,7 +3619,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         eRows.forEach(r => { newEMap[(r.buildingId||'')+'||'+(r.fuel||'')] = { ...r, cells: { ...r.cells } }; });
         oRows.forEach(r => { newOMap[r.buildingId] = { ...r, cells: { ...r.cells } }; });
 
-        let imported = 0, unmatched = 0;
+        let imported = 0, unmatched = 0, skipped = 0;
         rows.forEach(r => {
           const year  = parseInt(r.year);
           const month = parseInt(r.month);
@@ -3542,7 +3652,9 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
           const ek = bId + '||' + fuelCode;
           if (!newEMap[ek]) newEMap[ek] = { id: uid(), buildingId: bId, fuel: fuelCode, cells: {} };
           const kwh = parseFloat(r.kwh);
-          if (!isNaN(kwh)) { newEMap[ek].cells[mk] = String(kwh); imported++; }
+          if (isNaN(kwh)) { /* blank cell — nothing to import */ }
+          else if (kwh < 0) { skipped++; }
+          else { newEMap[ek].cells[mk] = String(kwh); imported++; }
 
           // Occupancy is now a separate CSV — ignore if present in energy file
           // (backwards compat: if occupancy_pct column exists we silently skip it)
@@ -3553,17 +3665,20 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         setORows(Object.values(newOMap));
         setDirty(true);
         if (!imported) {
-          push('No records imported' + (unmatched > 0 ? ' — ' + unmatched + ' rows skipped (building not in portfolio)' : '') + '. Check that building names match your portfolio.', 'error');
+          push('No records imported'
+            + (skipped   > 0 ? ' — ' + skipped   + ' rows skipped (invalid data, e.g. negative values)' : '')
+            + (unmatched > 0 ? ' — ' + unmatched + ' rows skipped (building not in portfolio)' : '')
+            + '. Check that building names match your portfolio.', 'error');
           e.target.value = ''; return;
         }
         const msg = 'Imported ' + imported + ' energy readings'
+          + (skipped   > 0 ? ', ' + skipped   + ' rows skipped (invalid data)' : '')
           + (unmatched > 0 ? ', ' + unmatched + ' rows skipped (building not in portfolio)' : '')
           + ' — click Save to commit.';
-        push(msg, unmatched > 0 ? 'warning' : 'success');
+        push(msg, unmatched > 0 || skipped > 0 ? 'warning' : 'success');
         e.target.value = '';
       },
-      error: () => { push('Failed to parse CSV', 'error'); e.target.value = ''; },
-    });
+      () => { push('Failed to parse file', 'error'); e.target.value = ''; });
   };
 
   // ── Live duplicate detection ─────────────────────────────────────────────────
@@ -3600,6 +3715,13 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   // ── Per-row error/warning classification ──────────────────────────────────
   const eRowIssues = useMemo(() => {
     const dupRowSet = new Set(duplicateRows.flatMap(d => d.rowIndices));
+    // Cross-coverage: which building/fuel combos have a bill, and which buildings are billed at all.
+    const billKeys = new Set();
+    const bidsWithAnyBill = new Set();
+    deferredBRows.forEach(r => {
+      const hasCost = r.cells && Object.values(r.cells).some(v => v !== '' && v != null);
+      if (hasCost && r.buildingId && r.fuel) { billKeys.add(r.buildingId + '||' + r.fuel); bidsWithAnyBill.add(r.buildingId); }
+    });
     return deferredERows.map((row, i) => {
       const errors = [];
       const warnings = [];
@@ -3612,9 +3734,12 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
         : true;
       if (allBlank && errors.length === 0) warnings.push('No kWh values entered');
       if (dupRowSet.has(i) && !allBlank) warnings.push('Duplicate building / fuel combo');
+      // Consumption present for this fuel, building has bills for other fuels, but none for this one.
+      if (!allBlank && row.buildingId && row.fuel && bidsWithAnyBill.has(row.buildingId) && !billKeys.has(row.buildingId + '||' + row.fuel))
+        warnings.push('Consumption recorded but no utility bill entered for this fuel');
       return { errors, warnings };
     });
-  }, [deferredERows, buildings, fuels, duplicateRows]);
+  }, [deferredERows, deferredBRows, buildings, fuels, duplicateRows]);
 
   // Portfolio-level energy coverage issues
   const coverageIssues = useMemo(() => {
@@ -3650,14 +3775,25 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
 
   const bRowIssues = useMemo(() => {
     const dupRowSet = new Set(duplicateBillRows.flatMap(d => d.rowIndices));
+    // Cross-coverage: which building/fuel combos have consumption, and which buildings have any.
+    const consKeys = new Set();
+    const bidsWithAnyConsumption = new Set();
+    deferredERows.forEach(r => {
+      const hasKwh = r.cells && Object.values(r.cells).some(v => v !== '' && v != null);
+      if (hasKwh && r.buildingId && r.fuel) { consKeys.add(r.buildingId + '||' + r.fuel); bidsWithAnyConsumption.add(r.buildingId); }
+    });
     return deferredBRows.map((row, i) => {
       const { errors, warnings } = validateBillRow(row, bldgById);
       // don't flag empty rows as duplicates
       const isBillBlank = !row.buildingId && !row.fuel && !(row.cells && Object.keys(row.cells).length > 0);
       if (dupRowSet.has(i) && !isBillBlank) warnings.push('Duplicate building / fuel combo');
+      // Bill present for this fuel, building has consumption for other fuels, but none for this one.
+      const hasCost = row.cells && Object.values(row.cells).some(v => v !== '' && v != null);
+      if (hasCost && row.buildingId && row.fuel && bidsWithAnyConsumption.has(row.buildingId) && !consKeys.has(row.buildingId + '||' + row.fuel))
+        warnings.push('Bill entered but no energy consumption recorded for this fuel');
       return { errors, warnings: [...new Set(warnings)] };
     });
-  }, [deferredBRows, buildings, fuels, duplicateBillRows]);
+  }, [deferredBRows, deferredERows, buildings, fuels, duplicateBillRows]);
 
   const bErrCount  = bRowIssues.filter(i => i.errors.length > 0).length;
   const bWarnCount = bRowIssues.filter(i => i.errors.length === 0 && i.warnings.length > 0).length;
@@ -3875,13 +4011,12 @@ const selRange = useMemo(() => {
   }, 0);
   };
 
-  // Strip anything that isn't a digit, decimal point, or leading minus.
-  // Handles both energy cells and occupancy cells (occupancy is 0–100, no negatives needed,
-  // but we allow '-' here and let validation catch the value; it's simpler than splitting the handler).
+  // Strip anything that isn't a digit or a decimal point. Energy (kWh), bill costs
+  // and occupancy are all non-negative quantities, so we don't allow a minus sign —
+  // a negative value here is always a data-entry error.
   const onEditChange = useCallback((e) => {
     const raw = e.target.value;
-    // Allow: digits, one decimal point, optional leading minus.
-    const cleaned = raw.replace(/[^0-9.\-]/g, '');
+    const cleaned = raw.replace(/[^0-9.]/g, '');
     setEditVal(cleaned);
   }, []);
 
@@ -4122,7 +4257,7 @@ const selRange = useMemo(() => {
   };
 
   // ── Row operations ─────────────────────────────────────────────────────────
-  const addERow = () => mutateE(prev => [...prev, { id:uid(), buildingId:buildings[0]?.id||'', fuel:'electricity', cells:{} }]);
+  const addERow = () => mutateE(prev => [...prev, { id:uid(), buildingId: prev[prev.length-1]?.buildingId || buildings[0]?.id || '', fuel:'electricity', cells:{} }]);
   const addORow = () => mutateO(prev => {
     const bId = buildings.find(b => !prev.some(r => r.buildingId===b.id))?.id || buildings[0]?.id || '';
     return [...prev, { id:uid(), buildingId:bId, cells:{} }];
@@ -4246,11 +4381,11 @@ if (buildings.length===0) return (
           <span style={{fontFamily:T.body,fontSize:12,color:T.warmGrey,marginLeft:8}}>kWh per month</span>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <input ref={energyFileInputRef}    type="file" accept=".csv" style={{display:'none'}} onChange={handleEnergyCsvUpload} />
-          <input ref={billsFileInputRef}     type="file" accept=".csv" style={{display:'none'}} onChange={handleBillsCsvUpload} />
-          <input ref={occupancyFileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleOccupancyCsvUpload} />
+          <input ref={energyFileInputRef}    type="file" accept=".csv,.xlsx" style={{display:'none'}} onChange={handleEnergyCsvUpload} />
+          <input ref={billsFileInputRef}     type="file" accept=".csv,.xlsx" style={{display:'none'}} onChange={handleBillsCsvUpload} />
+          <input ref={occupancyFileInputRef} type="file" accept=".csv,.xlsx" style={{display:'none'}} onChange={handleOccupancyCsvUpload} />
           <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyTemplate}>Download Excel template</Button>
-          <Button variant="secondary" icon={Upload} size="sm" onClick={()=>energyFileInputRef.current?.click()}>Upload CSV</Button>
+          <Button variant="secondary" icon={Upload} size="sm" onClick={()=>energyFileInputRef.current?.click()}>Upload data</Button>
           {energy.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyData}>Export data</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addERow}>Add row</Button>
         </div>
@@ -4399,7 +4534,7 @@ if (buildings.length===0) return (
         </div>
         <div style={{display:'flex',gap:8}}>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyTemplate}>Download Excel template</Button>
-          <Button variant="secondary" icon={Upload} size="sm" onClick={() => occupancyFileInputRef.current?.click()}>Upload CSV</Button>
+          <Button variant="secondary" icon={Upload} size="sm" onClick={() => occupancyFileInputRef.current?.click()}>Upload data</Button>
           {oRows.length > 0 && <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyData}>Export data</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addORow}>Add row</Button>
         </div>
@@ -4563,7 +4698,7 @@ if (buildings.length===0) return (
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportBillsTemplate}>Download Excel template</Button>
-          <Button variant="secondary" icon={Upload} size="sm" onClick={() => billsFileInputRef.current?.click()}>Upload CSV</Button>
+          <Button variant="secondary" icon={Upload} size="sm" onClick={() => billsFileInputRef.current?.click()}>Upload data</Button>
           <Button variant="secondary" size="sm" icon={Download} onClick={exportBillsData}>Export data</Button>
           <Button variant="primary" icon={Plus} size="sm" onClick={addBRow}>Add row</Button>
         </div>
