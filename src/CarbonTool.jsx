@@ -3009,6 +3009,320 @@ function jumpInDirection(cellValues, startIdx, dir) {
   return lastIdx;
 }
 
+// =================================================================
+// useGridEngine — one spreadsheet engine for every grid
+// -----------------------------------------------------------------
+// A single headless hook that owns ALL selection, keyboard nav,
+// drag-select, copy/paste, clear and inline-edit behaviour. The
+// energy / occupancy / bills grids and the emission-factors grid
+// all run on it, so they behave identically — the only differences
+// live in each grid's "surface" adapter, which describes how to
+// read and write that grid's underlying data.
+//
+// Each surface is keyed by a short tag ('e' | 'o' | 'b' | 'f' …):
+//   {
+//     gridRef,                          // ref to the scrollable container <div>
+//     rowCount, colCount,               // current dimensions
+//     fixedColsLeft,                    // # of leading columns before the data cells
+//     getRaw(r, c) -> string,           // raw editable value (''=empty)
+//     getCopy?(r, c) -> string,         // value used for Ctrl+C (default: getRaw)
+//     applyEdits(edits) -> void,        // edits:[{r,c,raw}] — snapshot undo + write once
+//     clearRect(r0,r1,c0,c1) -> void,   // snapshot undo + clear a rectangle
+//     sanitizeInput?(raw) -> string,    // filter characters while typing
+//     parsePaste?(cell) -> string|null, // transform a pasted cell; null = skip it
+//     fullTablePaste?(grid, hasHeaders) -> bool, // whole-table paste; true if handled
+//     readOnly?(r, c) -> bool,          // non-editable cells (default: false)
+//   }
+//
+// The engine deliberately commits an edit and returns to navigation
+// mode (it never re-opens an editor and re-seeds it from freshly
+// mutated state) — that re-seed-from-stale-state pattern is exactly
+// what used to wipe values in the old emission-factors grid.
+// =================================================================
+function useGridEngine(surfaces, { onUndo, onCopied, onPasted } = {}) {
+  const [anchor,   setAnchorState] = useState(null); // { tag, rowIdx, colIdx }
+  const anchorRef = useRef(null);                    // always-current mirror for paste/copy closures
+  const [focusSel, setFocusSel]    = useState(null); // { tag, rowIdx, colIdx }
+  const [editCell, setEditCell]    = useState(null); // { tag, rowIdx, colIdx }
+  const [editVal,  setEditVal]     = useState('');
+  const inputRef  = useRef(null);
+  const dragState = useRef(null);                    // null idle | { tag, x, y, active }
+
+  const setAnchor = (v) => { anchorRef.current = v; setAnchorState(v); };
+
+  const surf      = (tag) => surfaces[tag];
+  const gridElOf  = (tag) => surf(tag)?.gridRef?.current ?? null;
+  const focusGrid = (tag) => gridElOf(tag)?.focus({ preventScroll: true });
+  const rowCount  = (tag) => surf(tag)?.rowCount ?? 0;
+  const colCount  = (tag) => surf(tag)?.colCount ?? 0;
+  const getRaw    = (tag, r, c) => surf(tag)?.getRaw(r, c) ?? '';
+  const getCopy   = (tag, r, c) => { const s = surf(tag); return (s?.getCopy ?? s?.getRaw)?.(r, c) ?? ''; };
+  const sanitize  = (tag, raw) => surf(tag)?.sanitizeInput ? surf(tag).sanitizeInput(raw) : raw;
+  const isReadOnly = (tag, r, c) => surf(tag)?.readOnly?.(r, c) ?? false;
+
+  // ── Derived selection range ────────────────────────────────────
+  const selRange = useMemo(() => {
+    if (!anchor || !focusSel || anchor.tag !== focusSel.tag) return null;
+    return {
+      tag: anchor.tag,
+      r0: Math.min(anchor.rowIdx, focusSel.rowIdx), r1: Math.max(anchor.rowIdx, focusSel.rowIdx),
+      c0: Math.min(anchor.colIdx, focusSel.colIdx), c1: Math.max(anchor.colIdx, focusSel.colIdx),
+    };
+  }, [anchor, focusSel]);
+
+  const inRange = (tag, ri, ci) => selRange && selRange.tag === tag && ri >= selRange.r0 && ri <= selRange.r1 && ci >= selRange.c0 && ci <= selRange.c1;
+  const isAnch  = (tag, ri, ci) => anchor && anchor.tag === tag && anchor.rowIdx === ri && anchor.colIdx === ci;
+
+  // ── Scroll the focused cell into view (mirrors Excel) ──────────
+  useEffect(() => {
+    if (!focusSel) return;
+    const s = surf(focusSel.tag); if (!s) return;
+    const gridEl = s.gridRef?.current; if (!gridEl) return;
+    const id = requestAnimationFrame(() => {
+      const tbl = gridEl.querySelector('table'); if (!tbl) return;
+      const tbody = tbl.tBodies?.[0]; if (!tbody) return;
+      const row = tbody.rows[focusSel.rowIdx]; if (!row) return;
+      const fixedCols = s.fixedColsLeft ?? 0;
+      const cell = row.cells[fixedCols + focusSel.colIdx]; if (!cell) return;
+      const headerEl = tbl.tHead?.rows?.[0];
+      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+      let stickyLeftW = 0;
+      for (let i = 0; i < fixedCols; i++) { const c = row.cells[i]; if (c) stickyLeftW += c.getBoundingClientRect().width; }
+      const gridRect = gridEl.getBoundingClientRect();
+      const cellRect = cell.getBoundingClientRect();
+      const topGap    = cellRect.top - (gridRect.top + headerH);
+      const bottomGap = gridRect.bottom - cellRect.bottom;
+      const leftGap   = cellRect.left - (gridRect.left + stickyLeftW);
+      const rightGap  = gridRect.right - cellRect.right;
+      const MARGIN = 4;
+      if (topGap    < MARGIN) gridEl.scrollTop  += topGap - MARGIN;
+      else if (bottomGap < MARGIN) gridEl.scrollTop  -= bottomGap - MARGIN;
+      if (leftGap   < MARGIN) gridEl.scrollLeft += leftGap - MARGIN;
+      else if (rightGap  < MARGIN) gridEl.scrollLeft -= rightGap - MARGIN;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusSel]);
+
+  // ── Document-level drag listeners (attach once) ────────────────
+  useEffect(() => {
+    const THRESHOLD = 8;
+    const onMove = (e) => {
+      const ds = dragState.current; if (!ds) return;
+      if (!ds.active) {
+        if (Math.abs(e.clientX - ds.x) < THRESHOLD && Math.abs(e.clientY - ds.y) < THRESHOLD) return;
+        dragState.current = { ...ds, active: true };
+      }
+    };
+    const onUp = () => { dragState.current = null; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  // ── Commit the active edit (then leave edit mode) ──────────────
+  const commitEdit = () => {
+    if (!editCell) return;
+    const { tag, rowIdx, colIdx } = editCell;
+    surf(tag)?.applyEdits([{ r: rowIdx, c: colIdx, raw: editVal }]);
+    setEditCell(null);
+  };
+
+  // ── Open an editor on a cell ───────────────────────────────────
+  const beginEdit = (tag, rowIdx, colIdx, startVal, selectAll) => {
+    if (isReadOnly(tag, rowIdx, colIdx)) return;
+    setEditCell({ tag, rowIdx, colIdx });
+    setEditVal(startVal);
+    setTimeout(() => {
+      const scrollEl = gridElOf(tag);
+      const sl = scrollEl?.scrollLeft ?? 0, st = scrollEl?.scrollTop ?? 0;
+      inputRef.current?.focus({ preventScroll: true });
+      if (selectAll) inputRef.current?.select();
+      if (scrollEl) { scrollEl.scrollLeft = sl; scrollEl.scrollTop = st; }
+    }, 0);
+  };
+
+  // ── Mouse interactions ─────────────────────────────────────────
+  const handleCellMouseDown = (e, tag, rowIdx, colIdx) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    if (editCell) commitEdit();
+    if (e.shiftKey && anchor && anchor.tag === tag) {
+      setFocusSel({ tag, rowIdx, colIdx });
+    } else {
+      setAnchor({ tag, rowIdx, colIdx });
+      setFocusSel({ tag, rowIdx, colIdx });
+      dragState.current = { tag, x: e.clientX, y: e.clientY, active: false };
+    }
+    focusGrid(tag);
+  };
+  const handleCellMouseEnter = (tag, rowIdx, colIdx) => {
+    const ds = dragState.current;
+    if (!ds || !ds.active || ds.tag !== tag) return;
+    setFocusSel(prev =>
+      prev && prev.tag === tag && prev.rowIdx === rowIdx && prev.colIdx === colIdx ? prev : { tag, rowIdx, colIdx }
+    );
+  };
+  const handleCellClick = () => {};
+  const handleCellDblClick = (tag, rowIdx, colIdx) => {
+    beginEdit(tag, rowIdx, colIdx, getRaw(tag, rowIdx, colIdx) ?? '', false);
+  };
+
+  const onEditChange = (e) => setEditVal(sanitize(editCell?.tag, e.target.value));
+
+  // ── Clear / copy / paste ───────────────────────────────────────
+  const clearRange = () => {
+    if (!selRange) return;
+    surf(selRange.tag)?.clearRect(selRange.r0, selRange.r1, selRange.c0, selRange.c1);
+  };
+
+  const copySelection = () => {
+    if (!selRange) return;
+    const { tag, r0, r1, c0, c1 } = selRange;
+    const lines = [];
+    for (let ri = r0; ri <= r1; ri++) {
+      const cells = [];
+      for (let ci = c0; ci <= c1; ci++) cells.push(getCopy(tag, ri, ci) ?? '');
+      lines.push(cells.join('\t'));
+    }
+    const text = lines.join('\n');
+    __gridInternalClipboard = text;
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch {}
+    document.body.removeChild(ta);
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).catch(() => {});
+    focusGrid(tag);
+    onCopied?.((r1 - r0 + 1) * (c1 - c0 + 1));
+  };
+
+  const doPaste = (text, tag) => {
+    const effectiveText = text || __gridInternalClipboard;
+    if (!effectiveText) return;
+    const lines = effectiveText.split(/\r?\n/).filter(l => l.trim());
+    if (!lines.length) return;
+    const grid = lines.map(l => l.split('\t'));
+    const s = surf(tag); if (!s) return;
+
+    // Surface-specific whole-table paste — energy's building+fuel paste and the
+    // electricity grid's country-keyed paste. The surface inspects the clipboard
+    // content (and whether a cell is anchored) and returns true if it handled it.
+    if (s.fullTablePaste) {
+      const firstRow = grid[0];
+      const hasHeaders = firstRow[0]?.toLowerCase().includes('building') || firstRow[0]?.toLowerCase().includes('name');
+      const hasAnchor = !!(anchorRef.current && anchorRef.current.tag === tag);
+      if (s.fullTablePaste(grid, hasHeaders, hasAnchor)) return; // adapter handles its own toast
+    }
+
+    const _anchor = anchorRef.current;
+    if (!_anchor || _anchor.tag !== tag) return;
+    const { rowIdx: startR, colIdx: startC } = _anchor;
+    const pasteH = grid.length, pasteW = grid[0]?.length || 1;
+    // If the selection is larger than the pasted block, tile to fill it (Excel behaviour).
+    const selCoversMore = selRange && selRange.tag === tag &&
+      (selRange.r1 - selRange.r0 + 1 > pasteH || selRange.c1 - selRange.c0 + 1 > pasteW);
+    const fillR1 = selCoversMore ? selRange.r1 : Math.min(startR + pasteH - 1, rowCount(tag) - 1);
+    const fillC1 = selCoversMore ? selRange.c1 : Math.min(startC + pasteW - 1, colCount(tag) - 1);
+    const parse = s.parsePaste ?? ((v) => v.trim());
+    const edits = [];
+    for (let ri = startR; ri <= fillR1; ri++) {
+      if (ri >= rowCount(tag)) break;
+      for (let ci = startC; ci <= fillC1; ci++) {
+        if (ci >= colCount(tag)) continue;
+        const cell = grid[(ri - startR) % pasteH]?.[(ci - startC) % pasteW] ?? '';
+        const out = parse(cell);
+        if (out == null) continue;
+        edits.push({ r: ri, c: ci, raw: out });
+      }
+    }
+    if (edits.length) s.applyEdits(edits);
+    setFocusSel({ tag, rowIdx: fillR1, colIdx: fillC1 });
+    onPasted?.();
+  };
+  const makePasteHandler = (tag) => (e) => { e.preventDefault(); doPaste(e.clipboardData?.getData('text'), tag); };
+
+  // ── Grid keyboard handler (navigation mode) ────────────────────
+  const makeGridKeyDown = (tag) => (e) => {
+    if (editCell && editCell.tag === tag) return; // active edit handles its own keys
+    const SCROLL_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End'];
+    if (SCROLL_KEYS.includes(e.key)) { e.preventDefault(); e.stopPropagation(); }
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (isCtrl && e.key === 'z') { e.preventDefault(); onUndo?.(tag); return; }
+    if (isCtrl && e.key === 'c') { e.preventDefault(); copySelection(); return; }
+    if (isCtrl && e.key === 'a') {
+      e.preventDefault();
+      const rc = rowCount(tag), cc = colCount(tag);
+      if (rc && cc) { setAnchor({ tag, rowIdx: 0, colIdx: 0 }); setFocusSel({ tag, rowIdx: rc - 1, colIdx: cc - 1 }); }
+      return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); clearRange(); return; }
+    const rc = rowCount(tag), cc = colCount(tag);
+    const curA = (anchor?.tag === tag) ? anchor : { tag, rowIdx: 0, colIdx: 0 };
+    const curF = (focusSel?.tag === tag) ? focusSel : curA;
+    const ARROWS = { ArrowUp:[-1,0], ArrowDown:[1,0], ArrowLeft:[0,-1], ArrowRight:[0,1] };
+    if (ARROWS[e.key]) {
+      e.preventDefault();
+      const [dr, dc] = ARROWS[e.key];
+      const base = e.shiftKey ? curF : curA;
+      let nr, nc;
+      if (isCtrl) {
+        // Excel-style jump along the row/column.
+        if (dc !== 0) {
+          const vals = Array.from({ length: cc }, (_, ci) => getRaw(tag, base.rowIdx, ci));
+          nr = base.rowIdx; nc = jumpInDirection(vals, base.colIdx, dc);
+        } else {
+          const vals = Array.from({ length: rc }, (_, ri) => getRaw(tag, ri, base.colIdx));
+          nc = base.colIdx; nr = jumpInDirection(vals, base.rowIdx, dr);
+        }
+      } else {
+        nr = Math.max(0, Math.min(rc - 1, base.rowIdx + dr));
+        nc = Math.max(0, Math.min(cc - 1, base.colIdx + dc));
+      }
+      if (e.shiftKey) setFocusSel({ tag, rowIdx: nr, colIdx: nc });
+      else { setAnchor({ tag, rowIdx: nr, colIdx: nc }); setFocusSel({ tag, rowIdx: nr, colIdx: nc }); }
+      return;
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const nc = e.shiftKey ? Math.max(0, curA.colIdx - 1) : Math.min(cc - 1, curA.colIdx + 1);
+      setAnchor({ tag, rowIdx: curA.rowIdx, colIdx: nc }); setFocusSel({ tag, rowIdx: curA.rowIdx, colIdx: nc }); return;
+    }
+    if (e.key === 'Enter' && !isCtrl) {
+      e.preventDefault();
+      const nr = Math.min(rc - 1, curA.rowIdx + 1);
+      setAnchor({ tag, rowIdx: nr, colIdx: curA.colIdx }); setFocusSel({ tag, rowIdx: nr, colIdx: curA.colIdx }); return;
+    }
+    if (e.key === 'F2' || (e.key.length === 1 && !isCtrl)) {
+      const existing = getRaw(tag, curA.rowIdx, curA.colIdx) ?? '';
+      const startVal = (e.key.length === 1 && e.key !== ' ') ? sanitize(tag, e.key) : existing;
+      beginEdit(tag, curA.rowIdx, curA.colIdx, startVal, e.key === 'F2');
+      if (e.key !== 'F2') e.preventDefault();
+    }
+  };
+
+  // ── Keyboard inside the active input ───────────────────────────
+  const handleInputKeyDown = (e) => {
+    if (!editCell) return;
+    const { tag, rowIdx, colIdx } = editCell;
+    const rc = rowCount(tag), cc = colCount(tag);
+    const moveTo = (nr, nc) => { setAnchor({ tag, rowIdx: nr, colIdx: nc }); setFocusSel({ tag, rowIdx: nr, colIdx: nc }); };
+    if (e.key === 'Enter')       { e.preventDefault(); commitEdit(); moveTo(Math.min(rc - 1, rowIdx + 1), colIdx); focusGrid(tag); }
+    else if (e.key === 'Tab')    { e.preventDefault(); commitEdit(); moveTo(rowIdx, e.shiftKey ? Math.max(0, colIdx - 1) : Math.min(cc - 1, colIdx + 1)); focusGrid(tag); }
+    else if (e.key === 'Escape') { setEditCell(null); focusGrid(tag); }
+    else if (e.key === 'ArrowUp')    { e.preventDefault(); commitEdit(); moveTo(Math.max(0, rowIdx - 1), colIdx); focusGrid(tag); }
+    else if (e.key === 'ArrowDown')  { e.preventDefault(); commitEdit(); moveTo(Math.min(rc - 1, rowIdx + 1), colIdx); focusGrid(tag); }
+    else if (e.key === 'ArrowLeft')  { e.preventDefault(); commitEdit(); moveTo(rowIdx, Math.max(0, colIdx - 1)); focusGrid(tag); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); commitEdit(); moveTo(rowIdx, Math.min(cc - 1, colIdx + 1)); focusGrid(tag); }
+  };
+
+  return {
+    anchor, focusSel, editCell, editVal, setEditVal, selRange, inputRef,
+    isAnch, inRange,
+    handleCellMouseDown, handleCellMouseEnter, handleCellClick, handleCellDblClick,
+    onEditChange, commitEdit, handleInputKeyDown, makeGridKeyDown, makePasteHandler,
+  };
+}
+
 // Stable DataCell at module scope — defining components inside another component
 // causes React to unmount/remount on every parent render, which destroys focus mid-typing.
 const DataCell = React.memo(function DataCell({
@@ -3829,392 +4143,85 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
     return oRows.map((_, i) => i);
   }, [oRows, oRowIssues, oIssueFilter, oSearch, globalSearch, buildings]);
 
-  // ── Selection & edit (shared logic, tag = 'e' | 'o') ─────────────────────
-  const [anchor,   setAnchor]   = useState(null); // { tag, rowIdx, colIdx }
-  const anchorRef = useRef(null); // always-current mirror for use in paste/copy closures
-  const [focusSel, setFocusSel] = useState(null); // { tag, rowIdx, colIdx }
-  const [editCell, setEditCell] = useState(null); // { tag, rowIdx, colIdx }
-  const [editVal,  setEditVal]  = useState('');
-  const inputRef   = useRef(null);
-  const eGridRef   = useRef(null);
-  const oGridRef   = useRef(null);
-  const bGridRef   = useRef(null);
-  // drag state: null when idle, {tag, x, y, active} while button held
-  const dragState = useRef(null);
+  // ── Selection & edit — powered by the shared useGridEngine ───────────────
+  // Three surfaces (energy 'e', occupancy 'o', bills 'b') sharing one engine,
+  // so all three behave identically. Each surface only describes how to read
+  // and write its own row data; everything else (selection, keyboard nav,
+  // drag-select, copy/paste/clear, inline edit) lives in the engine.
+  const eGridRef = useRef(null);
+  const oGridRef = useRef(null);
+  const bGridRef = useRef(null);
 
-  // ── Scroll-into-view when focus selection moves ────────────────────────────
-  // Mirrors Excel's behavior: if the focused cell would be hidden behind the
-  // sticky header or sticky left columns, or off the right/bottom edge, scroll
-  // just enough to bring it into view.
-  useEffect(() => {
-    if (!focusSel) return;
-    const gridEl = (focusSel.tag === 'e' ? eGridRef : focusSel.tag === 'b' ? bGridRef : oGridRef).current;
-    if (!gridEl) return;
-    // Defer to allow DOM to settle after state update
-    const id = requestAnimationFrame(() => {
-      const tbl = gridEl.querySelector('table');
-      if (!tbl) return;
-      // Find the cell. Body rows are second through end; first is thead.
-      // Row index in tbody = focusSel.rowIdx.
-      // Column index in tbody row: occupancy table has [building, ...months, delete]
-      // Energy table has [building, fuel, ...months, delete]
-      const tbody = tbl.tBodies?.[0];
-      if (!tbody) return;
-      const row = tbody.rows[focusSel.rowIdx];
-      if (!row) return;
-      const fixedCols = focusSel.tag === 'e' ? 2 : focusSel.tag === 'b' ? 3 : 1; // building (+ fuel + currency for bills)
-      const cell = row.cells[fixedCols + focusSel.colIdx];
-      if (!cell) return;
+  const ENERGY_SANITIZE = (raw) => raw.replace(/[^0-9.]/g, ''); // non-negative quantities
+  const ENERGY_PARSE_PASTE = (cell) => cell.trim().replace(/,/g, '');
 
-      // Sticky header height (thead) and sticky left columns (first N cells of any row)
-      const headerEl = tbl.tHead?.rows?.[0];
-      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
-      let stickyLeftW = 0;
-      for (let i = 0; i < fixedCols; i++) {
-        const c = row.cells[i];
-        if (c) stickyLeftW += c.getBoundingClientRect().width;
-      }
-
-      // Cell position relative to scroll container's viewport
-      const gridRect = gridEl.getBoundingClientRect();
-      const cellRect = cell.getBoundingClientRect();
-      // Distance from cell edges to grid edges (positive = inside, negative = clipped)
-      const topGap    = cellRect.top  - (gridRect.top  + headerH);
-      const bottomGap = gridRect.bottom - cellRect.bottom;
-      const leftGap   = cellRect.left - (gridRect.left + stickyLeftW);
-      const rightGap  = gridRect.right - cellRect.right;
-
-      const MARGIN = 4; // small margin so the cell isn't flush against sticky edge
-      if (topGap    < MARGIN) gridEl.scrollTop  += topGap - MARGIN;
-      else if (bottomGap < MARGIN) gridEl.scrollTop  -= bottomGap - MARGIN;
-      if (leftGap   < MARGIN) gridEl.scrollLeft += leftGap - MARGIN;
-      else if (rightGap  < MARGIN) gridEl.scrollLeft -= rightGap - MARGIN;
-    });
-    return () => cancelAnimationFrame(id);
-  }, [focusSel]);
-
-const selRange = useMemo(() => {
-    if (!anchor || !focusSel || anchor.tag !== focusSel.tag) return null;
-    return {
-      tag: anchor.tag,
-      r0: Math.min(anchor.rowIdx, focusSel.rowIdx), r1: Math.max(anchor.rowIdx, focusSel.rowIdx),
-      c0: Math.min(anchor.colIdx, focusSel.colIdx), c1: Math.max(anchor.colIdx, focusSel.colIdx),
-    };
-  }, [anchor, focusSel]);
-
-  const inRange = (tag, ri, ci) => selRange && selRange.tag === tag && ri >= selRange.r0 && ri <= selRange.r1 && ci >= selRange.c0 && ci <= selRange.c1;
-  const isAnch  = (tag, ri, ci) => anchor && anchor.tag === tag && anchor.rowIdx === ri && anchor.colIdx === ci;
-
-  const setAnchorAndRef = useCallback((val) => {
-    anchorRef.current = val;
-    setAnchor(val);
-  }, []);
-  const rowsFor  = (tag) => tag === 'e' ? eRows : tag === 'b' ? bRows : oRows;
-  const mutateFor = (tag) => tag === 'e' ? mutateE : tag === 'b' ? mutateB : mutateO;
-
-  // ── Cell interactions ──────────────────────────────────────────────────────
-
-  // Document-level listeners attached on mousedown, removed on mouseup
-  useEffect(() => {
-    const THRESHOLD = 8; // px before drag activates
-    const onMove = (e) => {
-      const ds = dragState.current;
-      if (!ds) return;
-      if (!ds.active) {
-        if (Math.abs(e.clientX - ds.x) < THRESHOLD && Math.abs(e.clientY - ds.y) < THRESHOLD) return;
-        dragState.current = { ...ds, active: true };
-      }
-    };
-    const onUp = () => { dragState.current = null; };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, []);
-
-  const handleCellMouseDown = (e, tag, rowIdx, colIdx) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    if (editCell) commitEdit();
-    if (e.shiftKey && anchor && anchor.tag === tag) {
-      setFocusSel({ tag, rowIdx, colIdx });
-    } else {
-      setAnchorAndRef({ tag, rowIdx, colIdx });
-      setFocusSel({ tag, rowIdx, colIdx });
-      dragState.current = { tag, x: e.clientX, y: e.clientY, active: false };
-    }
-    (tag === 'e' ? eGridRef : tag === 'b' ? bGridRef : oGridRef).current?.focus({ preventScroll: true });
-  };
-
-  const handleCellMouseEnter = (tag, rowIdx, colIdx) => {
-    const ds = dragState.current;
-    if (!ds || !ds.active || ds.tag !== tag) return;
-    setFocusSel(prev =>
-      prev && prev.tag === tag && prev.rowIdx === rowIdx && prev.colIdx === colIdx
-        ? prev : { tag, rowIdx, colIdx }
-    );
-  };
-
-  const handleCellClick = () => {};
-
-  const handleCellDblClick = (tag, rowIdx, colIdx) => {
-    const rows = rowsFor(tag);
-    setEditCell({ tag, rowIdx, colIdx });
-    setEditVal(rows[rowIdx]?.cells?.[monthCols[colIdx]?.key] ?? '');
-    setTimeout(() => {
-    const scrollEl = (tag === 'e' ? eGridRef : tag === 'b' ? bGridRef : oGridRef).current;
-    const sl = scrollEl?.scrollLeft ?? 0, st = scrollEl?.scrollTop ?? 0;
-    inputRef.current?.focus({ preventScroll: true });
-    if (scrollEl) { scrollEl.scrollLeft = sl; scrollEl.scrollTop = st; }
-  }, 0);
-  };
-
-  // Strip anything that isn't a digit or a decimal point. Energy (kWh), bill costs
-  // and occupancy are all non-negative quantities, so we don't allow a minus sign —
-  // a negative value here is always a data-entry error.
-  const onEditChange = useCallback((e) => {
-    const raw = e.target.value;
-    const cleaned = raw.replace(/[^0-9.]/g, '');
-    setEditVal(cleaned);
-  }, []);
-
-  const commitEdit = useCallback(() => {
-    if (!editCell) return;
-    const { tag, rowIdx, colIdx } = editCell;
-    const colKey = monthCols[colIdx]?.key;
-    if (colKey) mutateFor(tag)(prev => prev.map((r,i) => i !== rowIdx ? r : { ...r, cells: { ...r.cells, [colKey]: editVal } }));
-    setEditCell(null);
-  }, [editCell, editVal, monthCols]);
-
-  // ── Clear range ────────────────────────────────────────────────────────────
-  const clearRange = useCallback(() => {
-    if (!selRange) return;
-    const { tag, r0, r1, c0, c1 } = selRange;
-    mutateFor(tag)(prev => prev.map((row, ri) => {
+  const makeRowSurface = (gridRef, rows, mutate, fixedColsLeft) => ({
+    gridRef,
+    rowCount: rows.length,
+    colCount: monthCols.length,
+    fixedColsLeft,
+    getRaw: (r, c) => rows[r]?.cells?.[monthCols[c]?.key] ?? '',
+    applyEdits: (edits) => mutate(prev => prev.map((row, ri) => {
+      const rowEdits = edits.filter(ed => ed.r === ri);
+      if (!rowEdits.length) return row;
+      const cells = { ...row.cells };
+      rowEdits.forEach(({ c, raw }) => { const k = monthCols[c]?.key; if (k) cells[k] = raw; });
+      return { ...row, cells };
+    })),
+    clearRect: (r0, r1, c0, c1) => mutate(prev => prev.map((row, ri) => {
       if (ri < r0 || ri > r1) return row;
       const cells = { ...row.cells };
       for (let ci = c0; ci <= c1; ci++) { const k = monthCols[ci]?.key; if (k) cells[k] = ''; }
       return { ...row, cells };
-    }));
-  }, [selRange, monthCols]);
+    })),
+    sanitizeInput: ENERGY_SANITIZE,
+    parsePaste: ENERGY_PARSE_PASTE,
+  });
 
-  // ── Copy ───────────────────────────────────────────────────────────────────
-  const copySelection = useCallback(() => {
-    if (!selRange) return;
-    const { tag, r0, r1, c0, c1 } = selRange;
-    const rows = rowsFor(tag);
-    const lines = [];
-    for (let ri = r0; ri <= r1; ri++) {
-      const cells = [];
-      for (let ci = c0; ci <= c1; ci++) cells.push(rows[ri]?.cells?.[monthCols[ci]?.key] ?? '');
-      lines.push(cells.join('\t'));
-    }
-    const text = lines.join('\n');
-    // Capture grid element so we can restore focus after copying
-    const gridEl = (tag === 'e' ? eGridRef : tag === 'b' ? bGridRef : oGridRef).current;
-    const restoreFocus = () => gridEl?.focus({ preventScroll: true });
-
-    // Always store in our in-memory clipboard (reliable fallback for sandboxed iframes).
-    __gridInternalClipboard = text;
-
-    // Always run execCommand first — it is the most reliable way to set the clipboard
-    // in a sandboxed iframe (navigator.clipboard.writeText can resolve successfully
-    // but silently fail to write, causing paste to get nothing via e.clipboardData).
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); } catch {}
-    document.body.removeChild(ta);
-
-    // Also try the modern API in case the environment supports it.
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-
-    restoreFocus();
-    push('Copied ' + ((r1-r0+1)*(c1-c0+1)) + ' cells', 'success');
-  }, [selRange, eRows, oRows, bRows, monthCols, push]);
-
-  // ── Paste ──────────────────────────────────────────────────────────────────
-  const doPaste = useCallback((text, tag) => {
-    // If the browser gave us nothing (sandboxed iframe clipboard restriction),
-    // fall back to our in-memory copy from the last Ctrl+C.
-    const effectiveText = text || __gridInternalClipboard;
-    if (!effectiveText) return;
-    const text2 = effectiveText;
-    const lines = text2.split(/\r?\n/).filter(l => l.trim());
-    if (!lines.length) return;
-    const grid = lines.map(l => l.split('\t'));
-
-    // Full-table paste: col0=building, col1=fuel (energy grid only, no selection)
-    const firstRow = grid[0];
-    const hasHeaders = firstRow[0]?.toLowerCase().includes('building') || firstRow[0]?.toLowerCase().includes('name');
-    if (tag === 'e' && !anchor && grid[0].length >= 3) {
-      const dataRows = hasHeaders ? grid.slice(1) : grid;
-      let startColKey = monthCols[0]?.key;
-      if (hasHeaders) { const d = new Date(firstRow[2]); if (!isNaN(d)) startColKey = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
-      const startCI = monthCols.findIndex(c => c.key === startColKey);
-      mutateE(prev => {
-        const next = [...prev];
-        dataRows.forEach(cells => {
-          const bName = (cells[0]||'').trim(); const fName = (cells[1]||'').trim();
-          if (!bName && !fName) return;
-          const bId = buildings.find(b => b.name?.toLowerCase() === bName.toLowerCase())?.id || bName;
-          const fuelCode = fuels.find(f => f.name?.toLowerCase() === fName.toLowerCase())?.code || fName.toLowerCase().replace(/\s+/g,'_');
-          let rowObj = next.find(r => r.buildingId === bId && r.fuel === fuelCode);
-          if (!rowObj) { rowObj = { id: uid(), buildingId: bId, fuel: fuelCode, cells: {} }; next.push(rowObj); }
-          cells.slice(2).forEach((val, vi) => { const col = monthCols[startCI+vi]; if (col && val.trim()) rowObj.cells[col.key] = val.trim().replace(/,/g,''); });
+  const energySurfaces = {
+    e: {
+      ...makeRowSurface(eGridRef, eRows, mutateE, 2),
+      // Whole-table paste: col0 = building name, col1 = fuel, then month columns.
+      // Only when nothing is anchored — an anchored paste is positional instead.
+      fullTablePaste: (grid, hasHeaders, hasAnchor) => {
+        if (hasAnchor) return false;
+        if (grid[0].length < 3) return false;
+        const firstRow = grid[0];
+        const dataRows = hasHeaders ? grid.slice(1) : grid;
+        let startColKey = monthCols[0]?.key;
+        if (hasHeaders) { const d = new Date(firstRow[2]); if (!isNaN(d)) startColKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+        const startCI = monthCols.findIndex(c => c.key === startColKey);
+        mutateE(prev => {
+          const next = [...prev];
+          dataRows.forEach(cells => {
+            const bName = (cells[0] || '').trim(); const fName = (cells[1] || '').trim();
+            if (!bName && !fName) return;
+            const bId = buildings.find(b => b.name?.toLowerCase() === bName.toLowerCase())?.id || bName;
+            const fuelCode = fuels.find(f => f.name?.toLowerCase() === fName.toLowerCase())?.code || fName.toLowerCase().replace(/\s+/g, '_');
+            let rowObj = next.find(r => r.buildingId === bId && r.fuel === fuelCode);
+            if (!rowObj) { rowObj = { id: uid(), buildingId: bId, fuel: fuelCode, cells: {} }; next.push(rowObj); }
+            cells.slice(2).forEach((val, vi) => { const col = monthCols[startCI + vi]; if (col && val.trim()) rowObj.cells[col.key] = val.trim().replace(/,/g, ''); });
+          });
+          return next;
         });
-        return next;
-      });
-      push('Pasted ' + dataRows.length + ' rows', 'success'); return;
-    }
-
-    const _anchor = anchorRef.current;
-    if (!_anchor || _anchor.tag !== tag) return;
-    const { rowIdx: startR, colIdx: startC } = _anchor;
-    const rows = rowsFor(tag);
-    const pasteH = grid.length, pasteW = grid[0]?.length || 1;
-
-    // Fill area: if the selection is larger than the paste content, tile the paste to fill the
-    // entire selection (Excel behavior: select a destination range, paste fills it by tiling).
-    // If no selection or selection is smaller than paste, paste the exact content from anchor.
-    const selCoversMore = selRange && selRange.tag === tag &&
-      (selRange.r1 - selRange.r0 + 1 > pasteH || selRange.c1 - selRange.c0 + 1 > pasteW);
-    const fillR1 = selCoversMore ? selRange.r1 : Math.min(startR + pasteH - 1, rows.length - 1);
-    const fillC1 = selCoversMore ? selRange.c1 : Math.min(startC + pasteW - 1, monthCols.length - 1);
-
-    mutateFor(tag)(prev => {
-      const next = prev.map(r => ({ ...r, cells: { ...r.cells } }));
-      for (let ri = startR; ri <= fillR1; ri++) {
-        if (ri >= next.length) break;
-        for (let ci = startC; ci <= fillC1; ci++) {
-          const col = monthCols[ci]; if (!col) continue;
-          // Tile the pasted grid
-          const val = grid[(ri - startR) % pasteH]?.[(ci - startC) % pasteW] ?? '';
-          next[ri].cells[col.key] = val.trim().replace(/,/g,'');
-        }
-      }
-      return next;
-    });
-    setFocusSel({ tag, rowIdx: fillR1, colIdx: fillC1 });
-    push('Pasted', 'success');
-  }, [anchor, selRange, monthCols, buildings, fuels, eRows, oRows, bRows, mutateE, mutateB, push]);
-
-  const makePasteHandler = (tag) => (e) => { e.preventDefault(); doPaste(e.clipboardData?.getData('text'), tag); };
-
-  // ── Grid keyboard handler ──────────────────────────────────────────────────
-  const makeGridKeyDown = (tag) => (e) => {
-    // If a cell is being edited, let the input handle its own keys (cursor movement etc.)
-    if (editCell && editCell.tag === tag) return;
-    // Block scroll-causing keys only when we are in navigation mode (not editing)
-    const SCROLL_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End'];
-    if (SCROLL_KEYS.includes(e.key)) { e.preventDefault(); e.stopPropagation(); }
-    const isCtrl = e.ctrlKey || e.metaKey;
-    if (isCtrl && e.key === 'z') { e.preventDefault(); undo(); return; }
-    if (isCtrl && e.key === 'c') { e.preventDefault(); copySelection(); return; }
-    if (isCtrl && e.key === 'a') {
-      e.preventDefault();
-      const rows = rowsFor(tag);
-      if (rows.length && monthCols.length) { setAnchorAndRef({ tag, rowIdx:0, colIdx:0 }); setFocusSel({ tag, rowIdx: rows.length-1, colIdx: monthCols.length-1 }); }
-      return;
-    }
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); clearRange(); return; }
-    const rows = rowsFor(tag);
-    const curA = (anchor?.tag === tag) ? anchor : { tag, rowIdx:0, colIdx:0 };
-    const curF = (focusSel?.tag === tag) ? focusSel : curA;
-    const ARROWS = { ArrowUp:[-1,0], ArrowDown:[1,0], ArrowLeft:[0,-1], ArrowRight:[0,1] };
-    if (ARROWS[e.key]) {
-      e.preventDefault();
-      const [dr, dc] = ARROWS[e.key];
-      const base = e.shiftKey ? curF : curA;
-
-      let nr, nc;
-      if (isCtrl) {
-        // Ctrl+Arrow: Excel-style jump along the row/column.
-        // Build a 1D array of values along the axis, then run the jump algorithm.
-        const isHoriz = dc !== 0;
-        const isEmpty = (v) => v === '' || v == null;
-        if (isHoriz) {
-          const r = base.rowIdx;
-          const vals = monthCols.map(c => rows[r]?.cells?.[c.key] ?? '');
-          nr = r;
-          nc = jumpInDirection(vals, base.colIdx, dc);
-        } else {
-          const c = base.colIdx;
-          const colKey = monthCols[c]?.key;
-          const vals = rows.map(row => row?.cells?.[colKey] ?? '');
-          nc = c;
-          nr = jumpInDirection(vals, base.rowIdx, dr);
-        }
-      } else {
-        // Plain arrow / Shift+arrow: move/extend by 1
-        nr = Math.max(0, Math.min(rows.length-1, base.rowIdx+dr));
-        nc = Math.max(0, Math.min(monthCols.length-1, base.colIdx+dc));
-      }
-
-      if (e.shiftKey) {
-        // Extend selection: anchor stays put, focus moves
-        setFocusSel({ tag, rowIdx: nr, colIdx: nc });
-      } else {
-        // Move: both anchor and focus go to new cell
-        setAnchorAndRef({ tag, rowIdx: nr, colIdx: nc });
-        setFocusSel({ tag, rowIdx: nr, colIdx: nc });
-      }
-      return;
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const nc = e.shiftKey ? Math.max(0,curA.colIdx-1) : Math.min(monthCols.length-1,curA.colIdx+1);
-      setAnchorAndRef({ tag, rowIdx:curA.rowIdx, colIdx:nc }); setFocusSel({ tag, rowIdx:curA.rowIdx, colIdx:nc }); return;
-    }
-    if (e.key === 'Enter' && !(e.ctrlKey||e.metaKey)) {
-      e.preventDefault();
-      const nr = Math.min(rows.length-1, curA.rowIdx+1);
-      setAnchorAndRef({ tag, rowIdx:nr, colIdx:curA.colIdx }); setFocusSel({ tag, rowIdx:nr, colIdx:curA.colIdx }); return;
-    }
-    if (e.key === 'F2' || (e.key.length === 1 && !isCtrl && curA)) {
-      const startVal = e.key.length===1 && e.key !== ' ' ? e.key : (rows[curA.rowIdx]?.cells?.[monthCols[curA.colIdx]?.key] ?? '');
-      setEditCell({ tag, rowIdx:curA.rowIdx, colIdx:curA.colIdx }); setEditVal(startVal);
-      setTimeout(() => {
-        const scrollEl = (tag === 'e' ? eGridRef : tag === 'b' ? bGridRef : oGridRef).current;
-        const sl = scrollEl?.scrollLeft ?? 0, st = scrollEl?.scrollTop ?? 0;
-        inputRef.current?.focus({ preventScroll: true });
-        if (e.key === 'F2') inputRef.current?.select();
-        if (scrollEl) { scrollEl.scrollLeft = sl; scrollEl.scrollTop = st; }
-      }, 0);
-      if (e.key !== 'F2') e.preventDefault();
-    }
+        push('Pasted ' + dataRows.length + ' rows', 'success');
+        return true;
+      },
+    },
+    o: makeRowSurface(oGridRef, oRows, mutateO, 1),
+    b: makeRowSurface(bGridRef, bRows, mutateB, 3),
   };
 
-  const handleInputKeyDown = (e) => {
-    if (!editCell) return;
-    const { tag, rowIdx, colIdx } = editCell;
-    const rows = rowsFor(tag);
-    const focusGrid = () => (tag==='e'?eGridRef:tag==='b'?bGridRef:oGridRef).current?.focus({ preventScroll: true });
-    const moveTo = (nr, nc) => { setAnchorAndRef({ tag, rowIdx: nr, colIdx: nc }); setFocusSel({ tag, rowIdx: nr, colIdx: nc }); };
-
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      commitEdit();
-      const nr = Math.min((rows?.length||1)-1, rowIdx+1);
-      moveTo(nr, colIdx); focusGrid();
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      commitEdit();
-      const nc = e.shiftKey ? Math.max(0, colIdx-1) : Math.min(monthCols.length-1, colIdx+1);
-      moveTo(rowIdx, nc); focusGrid();
-    } else if (e.key === 'Escape') {
-      setEditCell(null); focusGrid();
-    } else if (e.key === 'ArrowUp')    { e.preventDefault(); commitEdit(); moveTo(Math.max(0, rowIdx-1), colIdx); focusGrid(); }
-    else if (e.key === 'ArrowDown')  { e.preventDefault(); commitEdit(); moveTo(Math.min(rows.length-1, rowIdx+1), colIdx); focusGrid(); }
-    else if (e.key === 'ArrowLeft')  { e.preventDefault(); commitEdit(); moveTo(rowIdx, Math.max(0, colIdx-1)); focusGrid(); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); commitEdit(); moveTo(rowIdx, Math.min(monthCols.length-1, colIdx+1)); focusGrid(); }
-  };
+  const {
+    anchor, focusSel, editCell, editVal, selRange, inputRef,
+    isAnch, inRange,
+    handleCellMouseDown, handleCellMouseEnter, handleCellClick, handleCellDblClick,
+    onEditChange, commitEdit, handleInputKeyDown, makeGridKeyDown, makePasteHandler,
+  } = useGridEngine(energySurfaces, {
+    onUndo: () => undo(),
+    onCopied: (n) => push('Copied ' + n + ' cells', 'success'),
+    onPasted: () => push('Pasted', 'success'),
+  });
 
   // ── Row operations ─────────────────────────────────────────────────────────
   const addERow = () => mutateE(prev => [...prev, { id:uid(), buildingId: prev[prev.length-1]?.buildingId || buildings[0]?.id || '', fuel:'electricity', cells:{} }]);
@@ -4880,14 +4887,8 @@ const EF_FUEL_W = 200;
 // =================================================================
 function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
   const [search,    setSearch]    = useState('');
-  const [anchor,    setAnchor]    = useState(null);   // { ri, ci }
-  const [focusSel,  setFocusSel]  = useState(null);   // other corner
-  const [editCell,  setEditCell]  = useState(null);   // { ri, ci }
-  const [editVal,   setEditVal]   = useState('');
   const [resetArmed, setResetArmed] = useState(false); // two-click confirm for reset-all
   const gridRef   = useRef(null);
-  const inputRef  = useRef(null);
-  const dragState = useRef(null);
   const efHistRef = useRef([]);
   const years     = EF_YEARS;
   const countries = CRREM_DATA.countries;
@@ -4941,254 +4942,91 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
     return ov && ov[ci] != null && ov[ci] !== (CRREM_DATA.emission_factors_electricity[co.code]?.[ci]);
   };
 
-  // Derived selection range
-  const selRange = (anchor && focusSel) ? {
-    r0: Math.min(anchor.ri, focusSel.ri), r1: Math.max(anchor.ri, focusSel.ri),
-    c0: Math.min(anchor.ci, focusSel.ci), c1: Math.max(anchor.ci, focusSel.ci),
-  } : anchor ? { r0: anchor.ri, r1: anchor.ri, c0: anchor.ci, c1: anchor.ci } : null;
-  const inRange = (ri, ci) => selRange && ri >= selRange.r0 && ri <= selRange.r1 && ci >= selRange.c0 && ci <= selRange.c1;
-  const isAnch  = (ri, ci) => anchor && anchor.ri === ri && anchor.ci === ci;
-
-  // Commit a raw string value to a cell
-  const commitVal = useCallback((ri, ci, raw) => {
-    const co = filtered[ri]; if (!co) return;
-    const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
-    const parsed = raw.trim() === '' ? crrem[ci] : parseFloat(raw.replace(/,/g, ''));
-    if (parsed == null || isNaN(parsed)) return;
-    pushEfHist();
-    setElectricityEfs(prev => {
-      const base = prev[co.code] ? [...prev[co.code]] : [...crrem];
-      base[ci] = parsed;
-      // Clean up row if all values match CRREM
-      const allMatch = base.every((v, i) => v === crrem[i] || (v == null && crrem[i] == null));
-      if (allMatch) { const n = { ...prev }; delete n[co.code]; return n; }
-      return { ...prev, [co.code]: base };
-    });
-  }, [filtered]);
-
-  const commitEdit = useCallback(() => {
-    if (!editCell) return;
-    commitVal(editCell.ri, editCell.ci, editVal);
-    setEditCell(null);
-  }, [editCell, editVal, commitVal]);
-
-  // Clear selected range back to CRREM
-  const clearRange = useCallback(() => {
-    if (!selRange) return;
+  // ── Grid surface for the shared useGridEngine ──────────────────────────────
+  // One surface ('x') for the CRREM electricity factors. Rows are the (search-
+  // filtered) countries; each cell's effective value is the user override or the
+  // CRREM default. Writing an empty value reverts the cell to CRREM, and a row
+  // whose values all match CRREM drops its override entry entirely.
+  const applyElecEdits = (edits) => {
     pushEfHist();
     setElectricityEfs(prev => {
       const next = { ...prev };
-      for (let ri = selRange.r0; ri <= selRange.r1; ri++) {
-        const co = filtered[ri]; if (!co || !next[co.code]) continue;
-        const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
-        const base = [...next[co.code]];
-        for (let ci = selRange.c0; ci <= selRange.c1; ci++) base[ci] = crrem[ci];
-        const allMatch = base.every((v, i) => v === crrem[i] || (v == null && crrem[i] == null));
-        if (allMatch) delete next[co.code]; else next[co.code] = base;
-      }
-      return next;
-    });
-  }, [selRange, filtered]);
-
-  // Copy selection as TSV
-  const copySelection = useCallback(() => {
-    if (!selRange) return;
-    const lines = [];
-    for (let ri = selRange.r0; ri <= selRange.r1; ri++) {
-      const co = filtered[ri]; if (!co) continue;
-      const cells = [];
-      for (let ci = selRange.c0; ci <= selRange.c1; ci++) {
-        const v = getVal(co, ci);
-        cells.push(v != null ? v.toFixed(4) : '');
-      }
-      lines.push(cells.join('\t'));
-    }
-    const text = lines.join('\n');
-    window.__efInternalClipboard = text;
-    const ta = document.createElement('textarea');
-    ta.value = text; ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
-    document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } catch {}
-    document.body.removeChild(ta);
-    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).catch(() => {});
-    gridRef.current?.focus({ preventScroll: true });
-  }, [selRange, filtered, electricityEfs]);
-
-  // Paste TSV (Excel-compatible)
-  const doPaste = useCallback((text) => {
-    const effectiveText = text || window.__efInternalClipboard || '';
-    if (!effectiveText) return;
-    const lines = effectiveText.split(/\r?\n/).filter(l => l.trim());
-    if (!lines.length) return;
-    const grid = lines.map(l => l.split('\t'));
-
-    // Detect if first col is country code/name → full-table paste (no anchor needed)
-    const firstCell = grid[0][0]?.trim() ?? '';
-    const isCountryPaste = countries.some(co =>
-      co.code.toLowerCase() === firstCell.toLowerCase() ||
-      co.name.toLowerCase() === firstCell.toLowerCase()
-    );
-    if (isCountryPaste) {
-      pushEfHist();
-      setElectricityEfs(prev => {
-        const next = { ...prev };
-        grid.forEach(row => {
-          const key = row[0]?.trim() ?? '';
-          const co = countries.find(c =>
-            c.code.toLowerCase() === key.toLowerCase() ||
-            c.name.toLowerCase() === key.toLowerCase()
-          );
-          if (!co) return;
-          const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
-          const base = next[co.code] ? [...next[co.code]] : [...crrem];
-          row.slice(1).forEach((val, vi) => {
-            const parsed = parseFloat(val.trim().replace(/,/g, ''));
-            if (!isNaN(parsed)) base[vi] = parsed;
-          });
-          next[co.code] = base;
-        });
-        return next;
-      });
-      return;
-    }
-
-    if (!anchor) return;
-    const { ri: startR, ci: startC } = anchor;
-    const pasteH = grid.length, pasteW = grid[0]?.length || 1;
-    const selCoversMore = selRange &&
-      (selRange.r1 - selRange.r0 + 1 > pasteH || selRange.c1 - selRange.c0 + 1 > pasteW);
-    const fillR1 = selCoversMore ? selRange.r1 : Math.min(startR + pasteH - 1, filtered.length - 1);
-    const fillC1 = selCoversMore ? selRange.c1 : Math.min(startC + pasteW - 1, years.length - 1);
-
-    pushEfHist();
-    setElectricityEfs(prev => {
-      const next = { ...prev };
-      for (let ri = startR; ri <= fillR1; ri++) {
-        const co = filtered[ri]; if (!co) continue;
+      const byRow = {};
+      edits.forEach(({ r, c, raw }) => { (byRow[r] ||= []).push({ c, raw }); });
+      Object.entries(byRow).forEach(([rStr, cellEdits]) => {
+        const co = filtered[+rStr]; if (!co) return;
         const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
         const base = next[co.code] ? [...next[co.code]] : [...crrem];
-        for (let ci = startC; ci <= fillC1; ci++) {
-          const raw = grid[(ri - startR) % pasteH]?.[(ci - startC) % pasteW] ?? '';
-          const parsed = parseFloat(raw.trim().replace(/,/g, ''));
-          if (!isNaN(parsed)) base[ci] = parsed;
-        }
-        next[co.code] = base;
-      }
+        cellEdits.forEach(({ c, raw }) => {
+          const parsed = raw.trim() === '' ? crrem[c] : parseFloat(raw.replace(/,/g, ''));
+          if (parsed == null || isNaN(parsed)) return;
+          base[c] = parsed;
+        });
+        const allMatch = base.every((v, i) => v === crrem[i] || (v == null && crrem[i] == null));
+        if (allMatch) delete next[co.code]; else next[co.code] = base;
+      });
       return next;
     });
-    setFocusSel({ ri: fillR1, ci: fillC1 });
-    gridRef.current?.focus({ preventScroll: true });
-  }, [anchor, selRange, filtered, countries]);
+  };
 
-  // Mouse drag (document-level, mirrors energy grid approach)
-  useEffect(() => {
-    const THRESH = 8;
-    const onMove = (e) => {
-      const ds = dragState.current; if (!ds) return;
-      if (!ds.active && (Math.abs(e.clientX - ds.x) >= THRESH || Math.abs(e.clientY - ds.y) >= THRESH))
-        dragState.current = { ...ds, active: true };
-    };
-    const onUp = () => { dragState.current = null; };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-  }, []);
+  const elecSurface = {
+    x: {
+      gridRef,
+      rowCount: filtered.length,
+      colCount: years.length,
+      fixedColsLeft: 1, // Country column precedes the year cells
+      getRaw: (r, c) => { const co = filtered[r]; if (!co) return ''; const v = getVal(co, c); return v != null ? String(v) : ''; },
+      getCopy: (r, c) => { const co = filtered[r]; if (!co) return ''; const v = getVal(co, c); return v != null ? v.toFixed(4) : ''; },
+      applyEdits: applyElecEdits,
+      clearRect: (r0, r1, c0, c1) => {
+        pushEfHist();
+        setElectricityEfs(prev => {
+          const next = { ...prev };
+          for (let r = r0; r <= r1; r++) {
+            const co = filtered[r]; if (!co || !next[co.code]) continue;
+            const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
+            const base = [...next[co.code]];
+            for (let c = c0; c <= c1; c++) base[c] = crrem[c];
+            const allMatch = base.every((v, i) => v === crrem[i] || (v == null && crrem[i] == null));
+            if (allMatch) delete next[co.code]; else next[co.code] = base;
+          }
+          return next;
+        });
+      },
+      sanitizeInput: (raw) => raw.replace(/[^0-9.\-]/g, ''),
+      parsePaste: (cell) => { const n = parseFloat(cell.trim().replace(/,/g, '')); return isNaN(n) ? null : String(n); },
+      // Country-keyed whole-table paste: first column is a country code/name.
+      // Fires on content regardless of the current anchor (matches prior behaviour).
+      fullTablePaste: (grid) => {
+        const firstCell = grid[0][0]?.trim() ?? '';
+        const isCountryPaste = countries.some(co =>
+          co.code.toLowerCase() === firstCell.toLowerCase() || co.name.toLowerCase() === firstCell.toLowerCase());
+        if (!isCountryPaste) return false;
+        pushEfHist();
+        setElectricityEfs(prev => {
+          const next = { ...prev };
+          grid.forEach(row => {
+            const key = row[0]?.trim() ?? '';
+            const co = countries.find(c => c.code.toLowerCase() === key.toLowerCase() || c.name.toLowerCase() === key.toLowerCase());
+            if (!co) return;
+            const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
+            const base = next[co.code] ? [...next[co.code]] : [...crrem];
+            row.slice(1).forEach((val, vi) => { const parsed = parseFloat(val.trim().replace(/,/g, '')); if (!isNaN(parsed)) base[vi] = parsed; });
+            next[co.code] = base;
+          });
+          return next;
+        });
+        return true;
+      },
+    },
+  };
 
-  const handleCellMouseDown = useCallback((e, ri, ci) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    if (editCell) commitEdit();
-    if (e.shiftKey && anchor) { setFocusSel({ ri, ci }); }
-    else { setAnchor({ ri, ci }); setFocusSel({ ri, ci }); dragState.current = { x: e.clientX, y: e.clientY, active: false }; }
-    gridRef.current?.focus({ preventScroll: true });
-  }, [editCell, commitEdit, anchor]);
-
-  const handleCellMouseEnter = useCallback((ri, ci) => {
-    const ds = dragState.current; if (!ds || !ds.active) return;
-    setFocusSel(prev => prev?.ri === ri && prev?.ci === ci ? prev : { ri, ci });
-  }, []);
-
-  const handleDblClick = useCallback((ri, ci) => {
-    const co = filtered[ri]; if (!co) return;
-    const val = getVal(co, ci);
-    setEditCell({ ri, ci });
-    setEditVal(val != null ? val.toFixed(4) : '');
-    setTimeout(() => { inputRef.current?.focus({ preventScroll: true }); inputRef.current?.select(); }, 0);
-  }, [filtered, electricityEfs]);
-
-  // Keyboard handler on grid container
-  const handleKeyDown = useCallback((e) => {
-    if (editCell) return;
-    const SCROLL_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End'];
-    if (SCROLL_KEYS.includes(e.key)) { e.preventDefault(); e.stopPropagation(); }
-    const isCtrl = e.ctrlKey || e.metaKey;
-    if (isCtrl && e.key === 'z') { e.preventDefault(); undoEf(); return; }
-    if (isCtrl && e.key === 'c') { e.preventDefault(); copySelection(); return; }
-    if (isCtrl && e.key === 'a') {
-      e.preventDefault();
-      setAnchor({ ri: 0, ci: 0 }); setFocusSel({ ri: filtered.length - 1, ci: years.length - 1 }); return;
-    }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selRange) { e.preventDefault(); clearRange(); return; }
-    if (!anchor && !['F2'].includes(e.key)) {
-      setAnchor({ ri: 0, ci: 0 }); setFocusSel({ ri: 0, ci: 0 }); return;
-    }
-    const curA = anchor || { ri: 0, ci: 0 };
-    const curF = focusSel || curA;
-    const ARROWS = { ArrowUp: [-1,0], ArrowDown: [1,0], ArrowLeft: [0,-1], ArrowRight: [0,1] };
-    if (ARROWS[e.key]) {
-      const [dr, dc] = ARROWS[e.key];
-      const base = e.shiftKey ? curF : curA;
-      let nr, nc;
-      if (isCtrl) {
-        if (dc !== 0) {
-          const vals = years.map((_, ci) => { const v = getVal(filtered[base.ri], ci); return v != null ? String(v) : ''; });
-          nr = base.ri; nc = jumpInDirection(vals, base.ci, dc);
-        } else {
-          const vals = filtered.map((co, ri) => { const v = getVal(co, base.ci); return v != null ? String(v) : ''; });
-          nc = base.ci; nr = jumpInDirection(vals, base.ri, dr);
-        }
-      } else {
-        nr = Math.max(0, Math.min(filtered.length - 1, base.ri + dr));
-        nc = Math.max(0, Math.min(years.length - 1,   base.ci + dc));
-      }
-      if (e.shiftKey) { setFocusSel({ ri: nr, ci: nc }); }
-      else { setAnchor({ ri: nr, ci: nc }); setFocusSel({ ri: nr, ci: nc }); }
-      return;
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const nc = e.shiftKey ? Math.max(0, curA.ci - 1) : Math.min(years.length - 1, curA.ci + 1);
-      setAnchor({ ri: curA.ri, ci: nc }); setFocusSel({ ri: curA.ri, ci: nc }); return;
-    }
-    if (e.key === 'Enter' && !isCtrl) {
-      e.preventDefault();
-      const nr = Math.min(filtered.length - 1, curA.ri + 1);
-      setAnchor({ ri: nr, ci: curA.ci }); setFocusSel({ ri: nr, ci: curA.ci }); return;
-    }
-    if (e.key === 'F2' || (e.key.length === 1 && !isCtrl && curA)) {
-      const existing = getVal(filtered[curA.ri], curA.ci);
-      const startVal = e.key.length === 1 && e.key !== ' ' ? e.key : (existing != null ? existing.toFixed(4) : '');
-      setEditCell({ ri: curA.ri, ci: curA.ci }); setEditVal(startVal);
-      setTimeout(() => { inputRef.current?.focus({ preventScroll: true }); if (e.key === 'F2') inputRef.current?.select(); }, 0);
-      if (e.key !== 'F2') e.preventDefault();
-    }
-  }, [editCell, anchor, focusSel, selRange, filtered, electricityEfs, copySelection, clearRange, undoEf, pushEfHist]);
-
-  const handleInputKeyDown = useCallback((e) => {
-    if (!editCell) return;
-    const focusGrid = () => gridRef.current?.focus({ preventScroll: true });
-    const moveTo = (nr, nc) => { setAnchor({ ri: nr, ci: nc }); setFocusSel({ ri: nr, ci: nc }); };
-    if (e.key === 'Enter') {
-      e.preventDefault(); commitEdit(); moveTo(Math.min(filtered.length-1, editCell.ri+1), editCell.ci); focusGrid();
-    } else if (e.key === 'Tab') {
-      e.preventDefault(); commitEdit();
-      moveTo(editCell.ri, e.shiftKey ? Math.max(0, editCell.ci-1) : Math.min(years.length-1, editCell.ci+1)); focusGrid();
-    } else if (e.key === 'Escape')    { setEditCell(null); focusGrid(); }
-    else if (e.key === 'ArrowUp')    { e.preventDefault(); commitEdit(); moveTo(Math.max(0, editCell.ri-1), editCell.ci); focusGrid(); }
-    else if (e.key === 'ArrowDown')  { e.preventDefault(); commitEdit(); moveTo(Math.min(filtered.length-1, editCell.ri+1), editCell.ci); focusGrid(); }
-    else if (e.key === 'ArrowLeft')  { e.preventDefault(); commitEdit(); moveTo(editCell.ri, Math.max(0, editCell.ci-1)); focusGrid(); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); commitEdit(); moveTo(editCell.ri, Math.min(years.length-1, editCell.ci+1)); focusGrid(); }
-  }, [editCell, editVal, filtered, commitEdit]);
+  const {
+    anchor, focusSel, editCell, editVal, selRange, inputRef,
+    isAnch, inRange,
+    handleCellMouseDown, handleCellMouseEnter, handleCellDblClick,
+    onEditChange, commitEdit, handleInputKeyDown, makeGridKeyDown, makePasteHandler,
+  } = useGridEngine(elecSurface, { onUndo: () => undoEf() });
 
   // Export
   const exportAuditCsv = () => {
@@ -5278,8 +5116,8 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
       {/* ── Grid ──────────────────────────────────────────────── */}
       <div style={{ border: '1px solid ' + T.border, borderRadius: 8, overflow: 'hidden', boxShadow: SHADOW_SM }}>
         <div ref={gridRef} tabIndex={0}
-          onKeyDown={handleKeyDown}
-          onPaste={e => { e.preventDefault(); doPaste(e.clipboardData?.getData('text')); }}
+          onKeyDown={makeGridKeyDown('x')}
+          onPaste={makePasteHandler('x')}
           style={{ overflow: 'auto', maxHeight: '50vh', outline: 'none', background: '#fff' }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: CTRY_W + years.length * COL_W }}>
             <colgroup>
@@ -5339,9 +5177,9 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
                     {years.map((y, ci) => {
                       const val       = getVal(co, ci);
                       const overridden= cellOverridden(co, ci);
-                      const editing   = editCell?.ri === ri && editCell?.ci === ci;
-                      const sel       = inRange(ri, ci);
-                      const anch      = isAnch(ri, ci);
+                      const editing   = editCell?.tag === 'x' && editCell?.rowIdx === ri && editCell?.colIdx === ci;
+                      const sel       = inRange('x', ri, ci);
+                      const anch      = isAnch('x', ri, ci);
                       const bgColor   = efColor(val);
                       // Selection: blend blue over the heat-map colour so both are readable
                       const cellBg = editing
@@ -5353,9 +5191,9 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
                             : bgColor;
                       return (
                         <td key={y}
-                          onMouseDown={e  => handleCellMouseDown(e, ri, ci)}
-                          onMouseEnter={() => handleCellMouseEnter(ri, ci)}
-                          onDoubleClick={() => handleDblClick(ri, ci)}
+                          onMouseDown={e  => handleCellMouseDown(e, 'x', ri, ci)}
+                          onMouseEnter={() => handleCellMouseEnter('x', ri, ci)}
+                          onDoubleClick={() => handleCellDblClick('x', ri, ci)}
                           style={{
                             padding: 0, textAlign: 'right',
                             background: cellBg,
@@ -5369,7 +5207,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
                             <input
                               ref={inputRef}
                               value={editVal}
-                              onChange={e => setEditVal(e.target.value.replace(/[^0-9.\-]/g, ''))}
+                              onChange={onEditChange}
                               onBlur={commitEdit}
                               onKeyDown={handleInputKeyDown}
                               autoFocus
@@ -5411,15 +5249,9 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
 
 
 function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectricityEfs, push }) {
-  const [editCell, setEditCell]   = useState(null);   // {rowIdx, colIdx}
-  const [editVal,  setEditVal]    = useState('');
-  const [anchor,   setAnchor]     = useState(null);
-  const [focusC,   setFocusC]     = useState(null);
   const [efUndo,   setEfUndo]     = useState([]);
   const [addOpen,  setAddOpen]    = useState(false);
-  const inputRef     = useRef(null);
   const gridRef      = useRef(null);
-  const navigating   = useRef(false); // true while a keyboard nav is in progress — suppresses onBlur commit
 
   // Ensure every non-electricity fuel has an explicit efs entry in 'fixed' mode
   useEffect(() => {
@@ -5429,15 +5261,6 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
     missing.forEach(f => { patch[f.code] = { mode: 'fixed', value: f.defaultEf ?? null }; });
     setEfs(prev => ({ ...patch, ...prev }));
   }, [fuels]);
-
-  // Focus the input whenever editCell changes to a non-null value
-  useEffect(() => {
-    if (!editCell) return;
-    const el = inputRef.current;
-    if (!el) return;
-    el.focus();
-    el.select();
-  }, [editCell?.rowIdx, editCell?.colIdx]);
 
   // Which fuels are editable (non-electricity)
   const editableFuels = fuels.filter(f => !f.isElectricity);
@@ -5461,202 +5284,81 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
   // ── Undo snapshot ──────────────────────────────────────────────────────────
   const pushUndo = (prevEfs) => setEfUndo(u => [...u.slice(-19), prevEfs]);
 
-  // ── Set a single cell ─────────────────────────────────────────────────────
-  const setCellValue = (fuel, yearIdx, val) => {
-    const year = EF_YEARS[yearIdx];
-    const num = val === '' ? null : parseFloat(val);
-    if (isNaN(num) && val !== '') return;
+  // ── Grid surface for the shared useGridEngine ──────────────────────────────
+  // One surface ('f') describing how to read/write the non-electricity fuel
+  // factors. Fixed-mode rows store a single value that applies to every year;
+  // per-year rows store an independent value per column. The engine handles all
+  // selection / keyboard / copy-paste / edit behaviour identically to the energy
+  // grids — so e.g. entering a value and pressing Enter commits cleanly instead
+  // of re-seeding the editor from stale state (the old "value vanishes" bug).
+  const undoEf = () => {
+    if (!efUndo.length) return;
+    setEfs(efUndo[efUndo.length - 1]);
+    setEfUndo(u => u.slice(0, -1));
+  };
+
+  const applyEfEdits = (edits) => {
     pushUndo(efs);
     setEfs(prev => {
-      const e = prev[fuel.code] || {};
-      const mode = e.mode || 'fixed';
-      if (mode === 'fixed') {
-        return { ...prev, [fuel.code]: { ...e, value: num } };
-      } else {
-        const ts = { ...(e.timeSeries || {}) };
-        if (num == null) delete ts[year]; else ts[year] = num;
-        return { ...prev, [fuel.code]: { ...e, timeSeries: ts } };
-      }
-    });
-  };
-
-  // ── Open edit ─────────────────────────────────────────────────────────────
-  const openEdit = (rowIdx, colIdx, initialChar = null) => {
-    const fuel = editableFuels[rowIdx];
-    if (!fuel) return;
-    const val = initialChar !== null ? initialChar : String(getCell(fuel, colIdx) ?? '');
-    setEditCell({ rowIdx, colIdx });
-    setEditVal(val);
-    setAnchor({ rowIdx, colIdx });
-    setFocusC({ rowIdx, colIdx });
-    // focus handled by useEffect above
-  };
-
-  // ── Commit current edit ───────────────────────────────────────────────────
-  const commitCurrent = (ec, val) => {
-    if (!ec) return;
-    const fuel = editableFuels[ec.rowIdx];
-    if (fuel) setCellValue(fuel, ec.colIdx, val);
-    setEditCell(null);
-  };
-
-  // ── Navigate to adjacent cell (commit + open next) ───────────────────────
-  const navigate = (ec, val, dr, dc) => {
-    navigating.current = true;
-    const fuel = editableFuels[ec.rowIdx];
-    if (fuel) setCellValue(fuel, ec.colIdx, val);
-    const nr = Math.max(0, Math.min(editableFuels.length - 1, ec.rowIdx + dr));
-    const nc = Math.max(0, Math.min(EF_YEARS.length - 1, ec.colIdx + dc));
-    setEditCell({ rowIdx: nr, colIdx: nc });
-    setEditVal(String(getCell(editableFuels[nr], nc) ?? ''));
-    setAnchor({ rowIdx: nr, colIdx: nc });
-    setFocusC({ rowIdx: nr, colIdx: nc });
-    setTimeout(() => { navigating.current = false; }, 0);
-  };
-
-  // ── Selection helpers ──────────────────────────────────────────────────────
-  const inSel = (ri, ci) => {
-    if (!anchor || !focusC) return false;
-    const r0 = Math.min(anchor.rowIdx, focusC.rowIdx), r1 = Math.max(anchor.rowIdx, focusC.rowIdx);
-    const c0 = Math.min(anchor.colIdx, focusC.colIdx), c1 = Math.max(anchor.colIdx, focusC.colIdx);
-    return ri >= r0 && ri <= r1 && ci >= c0 && ci <= c1;
-  };
-  const isAnch = (ri, ci) => anchor?.rowIdx === ri && anchor?.colIdx === ci;
-
-  // ── Keyboard on the grid container (no active edit) ───────────────────────
-  const handleGridKeyDown = (e) => {
-    if (editCell) return;
-    const a = anchor;
-    if (!a) return;
-
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      e.preventDefault();
-      if (!anchor || !focusC) return;
-      const r0 = Math.min(anchor.rowIdx, focusC.rowIdx), r1 = Math.max(anchor.rowIdx, focusC.rowIdx);
-      const c0 = Math.min(anchor.colIdx, focusC.colIdx), c1 = Math.max(anchor.colIdx, focusC.colIdx);
-      pushUndo(efs);
-      let newEfs = { ...efs };
-      for (let ri = r0; ri <= r1; ri++) {
-        const fuel = editableFuels[ri]; if (!fuel) continue;
-        const e2 = newEfs[fuel.code] || {};
-        const mode = e2.mode || 'fixed';
+      const out = { ...prev };
+      edits.forEach(({ r, c, raw }) => {
+        const fuel = editableFuels[r]; if (!fuel) return;
+        const num = raw === '' ? null : parseFloat(raw);
+        if (raw !== '' && isNaN(num)) return;
+        const e = out[fuel.code] || {};
+        const mode = e.mode || 'fixed';
         if (mode === 'fixed') {
-          newEfs = { ...newEfs, [fuel.code]: { ...e2, value: null } };
+          out[fuel.code] = { ...e, value: num };
         } else {
-          const ts = { ...(e2.timeSeries || {}) };
-          for (let ci = c0; ci <= c1; ci++) delete ts[EF_YEARS[ci]];
-          newEfs = { ...newEfs, [fuel.code]: { ...e2, timeSeries: ts } };
-        }
-      }
-      setEfs(newEfs);
-      return;
-    }
-
-    if (e.ctrlKey || e.metaKey) {
-      if (e.key === 'z') { e.preventDefault(); if (efUndo.length) { setEfs(efUndo[efUndo.length - 1]); setEfUndo(u => u.slice(0, -1)); } return; }
-      if (e.key === 'c') {
-        e.preventDefault();
-        if (!anchor || !focusC) return;
-        const r0 = Math.min(anchor.rowIdx, focusC.rowIdx), r1 = Math.max(anchor.rowIdx, focusC.rowIdx);
-        const c0 = Math.min(anchor.colIdx, focusC.colIdx), c1 = Math.max(anchor.colIdx, focusC.colIdx);
-        const rows = [];
-        for (let ri = r0; ri <= r1; ri++) {
-          const fuel = editableFuels[ri]; if (!fuel) continue;
-          const cols = [];
-          for (let ci = c0; ci <= c1; ci++) cols.push(getCellDisplay(fuel, ci) ?? '');
-          rows.push(cols.join('\t'));
-        }
-        navigator.clipboard?.writeText(rows.join('\n'));
-        return;
-      }
-      return;
-    }
-
-    const arrows = { ArrowUp: [-1,0], ArrowDown: [1,0], ArrowLeft: [0,-1], ArrowRight: [0,1] };
-    if (arrows[e.key]) {
-      e.preventDefault();
-      const [dr, dc] = arrows[e.key];
-      const nr = Math.max(0, Math.min(editableFuels.length - 1, a.rowIdx + dr));
-      const nc = Math.max(0, Math.min(EF_YEARS.length - 1, a.colIdx + dc));
-      setAnchor({ rowIdx: nr, colIdx: nc });
-      setFocusC({ rowIdx: nr, colIdx: nc });
-      return;
-    }
-
-    if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); openEdit(a.rowIdx, a.colIdx); return; }
-    if (e.key === 'Tab') { e.preventDefault(); return; } // Tab with no edit — do nothing
-
-    // Start typing → open edit with the typed character as initial value
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      openEdit(a.rowIdx, a.colIdx, e.key);
-    }
-  };
-
-  // ── Keyboard on the active input ──────────────────────────────────────────
-  const handleInputKeyDown = (e) => {
-    e.stopPropagation();
-    const ec = editCell;
-    const val = e.target.value; // read directly from DOM — always current
-    if (e.key === 'Enter')     { e.preventDefault(); navigate(ec, val, 1, 0); return; }
-    if (e.key === 'Tab')       { e.preventDefault(); navigate(ec, val, 0, e.shiftKey ? -1 : 1); return; }
-    if (e.key === 'Escape')    { e.preventDefault(); setEditCell(null); gridRef.current?.focus(); return; }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); navigate(ec, val, -1, 0); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); navigate(ec, val, 1, 0); return; }
-  };
-
-  // ── Paste ──────────────────────────────────────────────────────────────────
-  const handlePaste = (e) => {
-    e.preventDefault();
-    if (!anchor) return;
-    const text  = e.clipboardData.getData('text');
-    const rows  = text.split(/\r?\n/).filter(r => r !== '');
-    pushUndo(efs);
-    let newEfs = { ...efs };
-    rows.forEach((row, dr) => {
-      const ri = anchor.rowIdx + dr;
-      if (ri >= editableFuels.length) return;
-      const fuel = editableFuels[ri]; if (!fuel) return;
-      const vals = row.split('\t');
-      vals.forEach((v, dc) => {
-        const ci = anchor.colIdx + dc;
-        if (ci >= EF_YEARS.length) return;
-        const year = EF_YEARS[ci];
-        const num = parseFloat(v.trim().replace(',', '.'));
-        if (isNaN(num)) return;
-        const e2 = newEfs[fuel.code] || {};
-        const mode = e2.mode || 'fixed';
-        if (mode === 'fixed') {
-          newEfs = { ...newEfs, [fuel.code]: { ...e2, value: num } };
-        } else {
-          const ts = { ...(e2.timeSeries || {}), [year]: num };
-          newEfs = { ...newEfs, [fuel.code]: { ...e2, timeSeries: ts } };
+          const year = EF_YEARS[c];
+          const ts = { ...(e.timeSeries || {}) };
+          if (num == null) delete ts[year]; else ts[year] = num;
+          out[fuel.code] = { ...e, timeSeries: ts };
         }
       });
+      return out;
     });
-    setEfs(newEfs);
   };
 
-  // ── Mouse handlers ─────────────────────────────────────────────────────────
-  const handleMouseDown = (e, ri, ci) => {
-    // If an edit is active, commit it before moving selection
-    if (editCell) {
-      const fuel = editableFuels[editCell.rowIdx];
-      if (fuel) setCellValue(fuel, editCell.colIdx, editVal);
-      setEditCell(null);
-    }
-    if (e.shiftKey && anchor) {
-      setFocusC({ rowIdx: ri, colIdx: ci });
-    } else {
-      setAnchor({ rowIdx: ri, colIdx: ci });
-      setFocusC({ rowIdx: ri, colIdx: ci });
-    }
-    setTimeout(() => gridRef.current?.focus(), 0);
+  const factorsSurface = {
+    f: {
+      gridRef,
+      rowCount: editableFuels.length,
+      colCount: EF_YEARS.length,
+      fixedColsLeft: 2, // Fuel + Mode columns precede the year cells
+      getRaw: (r, c) => { const fuel = editableFuels[r]; if (!fuel) return ''; const v = getCell(fuel, c); return v == null ? '' : String(v); },
+      getCopy: (r, c) => { const fuel = editableFuels[r]; if (!fuel) return ''; return getCellDisplay(fuel, c); },
+      applyEdits: applyEfEdits,
+      clearRect: (r0, r1, c0, c1) => {
+        pushUndo(efs);
+        setEfs(prev => {
+          const out = { ...prev };
+          for (let r = r0; r <= r1; r++) {
+            const fuel = editableFuels[r]; if (!fuel) continue;
+            const e = out[fuel.code] || {};
+            const mode = e.mode || 'fixed';
+            if (mode === 'fixed') { out[fuel.code] = { ...e, value: null }; }
+            else { const ts = { ...(e.timeSeries || {}) }; for (let c = c0; c <= c1; c++) delete ts[EF_YEARS[c]]; out[fuel.code] = { ...e, timeSeries: ts }; }
+          }
+          return out;
+        });
+      },
+      sanitizeInput: (raw) => raw.replace(/[^0-9.]/g, ''), // emission factors are non-negative
+      parsePaste: (cell) => { const n = parseFloat(cell.trim().replace(',', '.')); return isNaN(n) ? null : String(n); },
+    },
   };
 
-  const handleMouseEnter = (e, ri, ci) => {
-    if (e.buttons !== 1) return;
-    setFocusC({ rowIdx: ri, colIdx: ci });
-  };
+  const {
+    anchor, focusSel, editCell, editVal, selRange, inputRef,
+    isAnch, inRange,
+    handleCellMouseDown, handleCellMouseEnter, handleCellDblClick,
+    onEditChange, commitEdit, handleInputKeyDown, makeGridKeyDown, makePasteHandler,
+  } = useGridEngine(factorsSurface, {
+    onUndo: () => undoEf(),
+    onCopied: () => {},
+    onPasted: () => push('Emission factors pasted', 'success'),
+  });
+
   const toggleMode = (fuel) => {
     const e = efs[fuel.code] || {};
     const cur = e.mode || 'fixed';
@@ -5767,8 +5469,8 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
       <div
         ref={gridRef}
         tabIndex={0}
-        onKeyDown={handleGridKeyDown}
-        onPaste={handlePaste}
+        onKeyDown={makeGridKeyDown('f')}
+        onPaste={makePasteHandler('f')}
         style={{ outline: 'none', borderRadius: 8, border: '1px solid ' + T.border, overflow: 'hidden', marginBottom: 12 }}
       >
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 520 }}>
@@ -5818,36 +5520,36 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                     {/* Year cells */}
                     {EF_YEARS.map((year, colIdx) => {
                       const val = getCell(fuel, colIdx);
-                      const sel = inSel(rowIdx, colIdx);
-                      const anch = isAnch(rowIdx, colIdx);
-                      const editing = editCell?.rowIdx === rowIdx && editCell?.colIdx === colIdx;
-                      // In fixed mode, only the first column is "really" editable; others mirror it
+                      const sel = inRange('f', rowIdx, colIdx);
+                      const anch = isAnch('f', rowIdx, colIdx);
+                      const editing = editCell?.tag === 'f' && editCell?.rowIdx === rowIdx && editCell?.colIdx === colIdx;
+                      // In fixed mode, columns after the first mirror the single value —
+                      // greyed to signal that, but still selectable/editable (editing any
+                      // of them updates the one shared value via the engine surface).
                       const isMirror = isFixed && colIdx > 0;
                       const displayVal = val === '' || val == null ? '' : parseFloat(val).toFixed(4);
                       return (
                         <td key={year}
-                          onMouseDown={(e2) => { if (!isMirror) { handleMouseDown(e2, rowIdx, colIdx); } else { handleMouseDown(e2, rowIdx, 0); } }}
-                          onMouseEnter={(e2) => { if (!isMirror) handleMouseEnter(e2, rowIdx, colIdx); }}
-                          onDoubleClick={() => { if (!isMirror) openEdit(rowIdx, colIdx); else openEdit(rowIdx, 0); }}
+                          onMouseDown={(e2) => handleCellMouseDown(e2, 'f', rowIdx, colIdx)}
+                          onMouseEnter={() => handleCellMouseEnter('f', rowIdx, colIdx)}
+                          onDoubleClick={() => handleCellDblClick('f', rowIdx, colIdx)}
                           style={{
                             padding: 0, textAlign: 'right',
                             borderRight: '1px solid ' + T.borderSoft,
                             background: editing ? '#eff6ff' : sel ? '#dbeafe' : isMirror ? '#fafafa' : '#fff',
                             outline: anch ? '2px solid #1d4ed8' : sel ? '1px solid #93c5fd' : 'none',
                             outlineOffset: '-2px',
-                            cursor: isMirror ? 'default' : 'cell',
+                            cursor: 'cell',
                             minWidth: EF_COL_W, userSelect: 'none',
-                            opacity: isMirror ? 0.45 : 1,
+                            opacity: isMirror ? 0.55 : 1,
                           }}
                         >
                           {editing ? (
                             <input
                               ref={inputRef}
                               value={editVal}
-                              onChange={e2 => setEditVal(e2.target.value)}
-                              onBlur={() => {
-                                if (!navigating.current) commitCurrent(editCell, editVal);
-                              }}
+                              onChange={onEditChange}
+                              onBlur={commitEdit}
                               onKeyDown={handleInputKeyDown}
                               style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.ink, outline: 'none', padding: '8px 6px', boxSizing: 'border-box' }}
                             />
