@@ -5,7 +5,7 @@ import {
   Globe2, Layers, AlertCircle, Plus, Trash2, Upload,
   Download, Edit3, X, Check, AlertTriangle, Info,
   Save, ClipboardPaste, ChevronRight, Settings,
-  MapPin, Search, FileText, Home,
+  MapPin, Search, FileText, Home, Sun, Moon,
 } from 'lucide-react';
 import Papa from 'papaparse';
 import { LineChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
@@ -73,24 +73,30 @@ function renderMath(latex, displayMode = false) {
 
 // === Design tokens — Slate & Sage ===
 const T = {
-  cream: '#f9fafb', paper: '#f3f4f6', ink: '#111827', inkSoft: '#374151',
-  warmGrey: '#6b7280', warmGreyLight: '#9ca3af', border: '#e4e7ec', borderSoft: '#f3f4f6',
-  forest: '#3a7d5c', forestSoft: '#4a9970', amber: '#b45309', amberSoft: '#d97706',
-  rose: '#b91c1c', roseSoft: '#dc2626',
-  slate: '#1e2530', slateLight: '#2d3748',
+  cream: 'var(--ct-cream)', paper: 'var(--ct-paper)', ink: 'var(--ct-ink)', inkSoft: 'var(--ct-inkSoft)',
+  warmGrey: 'var(--ct-warmGrey)', warmGreyLight: 'var(--ct-warmGreyLight)', border: 'var(--ct-border)', borderSoft: 'var(--ct-borderSoft)',
+  forest: 'var(--ct-forest)', forestSoft: 'var(--ct-forestSoft)', amber: 'var(--ct-amber)', amberSoft: 'var(--ct-amberSoft)',
+  rose: 'var(--ct-rose)', roseSoft: 'var(--ct-roseSoft)',
+  slate: 'var(--ct-slate)', slateLight: 'var(--ct-slateLight)',
   display: "'Inter', system-ui, sans-serif",
   body: "'Inter', system-ui, sans-serif",
   mono: "'JetBrains Mono', ui-monospace, monospace",
   radius: '6px',
+  // Surface = the colour formerly hardcoded as white card/input/modal backgrounds.
+  surface: 'var(--ct-surface)',
   // Semantic tints — use these instead of hardcoded hex (L1)
-  errorBg: '#fef2f2',   errorText: '#b91c1c',
-  warningBg: '#fffbeb', warningText: '#b45309',
-  successBg: '#f0faf4', successText: '#3a7d5c',
-  infoBg: '#eff6ff',    infoText: '#3b82f6',
-  amberBg: '#fef3c7',   amberText: '#92400e',
-  surfaceAlt: '#f8fafc',
-  successBgLight: '#f0fdf4',
-  neutralBg: '#fafafa',
+  errorBg: 'var(--ct-errorBg)',   errorText: 'var(--ct-errorText)',
+  warningBg: 'var(--ct-warningBg)', warningText: 'var(--ct-warningText)',
+  successBg: 'var(--ct-successBg)', successText: 'var(--ct-successText)',
+  infoBg: 'var(--ct-infoBg)',    infoText: 'var(--ct-infoText)',
+  amberBg: 'var(--ct-amberBg)',   amberText: 'var(--ct-amberText)',
+  violetBg: 'var(--ct-violetBg)',
+  surfaceAlt: 'var(--ct-surfaceAlt)',
+  successBgLight: 'var(--ct-successBgLight)',
+  neutralBg: 'var(--ct-neutralBg)',
+  selBg: 'var(--ct-selBg)', selBorder: 'var(--ct-selBorder)',
+  // Primary/default button — kept dark-on-light in light mode, elevated-dark in dark.
+  btnBg: 'var(--ct-btnBg)', btnFg: 'var(--ct-btnFg)', btnHoverBg: 'var(--ct-btnHoverBg)', btnBorder: 'var(--ct-btnBorder)',
   // Z-index scale (M7) — use T.z.X, never ad-hoc integers
   z: {
     stickyCell: 2, stickyHeader: 10, stickyCorner: 11,
@@ -99,6 +105,91 @@ const T = {
     modal: 1000, navGuard: 1100, toast: 9999,
   },
 };
+
+// === Theme (light / dark) ===================================================
+// All palette colours above are CSS variables; the two palettes below are the
+// light and dark values. We inject them as a stylesheet and flip the active set
+// by setting data-theme on <html>. Done at module load so there's no flash of
+// the wrong theme before React mounts.
+const THEME_KEY = 'crrem:theme:v1';
+const THEME_VARS = {
+  light: {
+    cream: '#f9fafb', paper: '#f3f4f6', surface: '#ffffff',
+    ink: '#111827', inkSoft: '#374151', warmGrey: '#6b7280', warmGreyLight: '#9ca3af',
+    border: '#e4e7ec', borderSoft: '#f3f4f6',
+    forest: '#3a7d5c', forestSoft: '#4a9970', amber: '#b45309', amberSoft: '#d97706',
+    rose: '#b91c1c', roseSoft: '#dc2626', slate: '#1e2530', slateLight: '#2d3748',
+    errorBg: '#fef2f2', errorText: '#b91c1c', warningBg: '#fffbeb', warningText: '#b45309',
+    successBg: '#f0faf4', successText: '#3a7d5c', infoBg: '#eff6ff', infoText: '#3b82f6',
+    amberBg: '#fef3c7', amberText: '#92400e', violetBg: '#f5f3ff',
+    surfaceAlt: '#f8fafc', successBgLight: '#f0fdf4', neutralBg: '#fafafa',
+    selBg: '#dbeafe', selBorder: '#93c5fd',
+    btnBg: '#111827', btnFg: '#f9fafb', btnHoverBg: '#374151', btnBorder: 'transparent',
+  },
+  dark: {
+    cream: '#0e1217', paper: '#171d26', surface: '#1c232e',
+    ink: '#eef1f6', inkSoft: '#cbd2dc', warmGrey: '#9aa4b2', warmGreyLight: '#717b88',
+    border: '#2f3744', borderSoft: '#262d38',
+    // Brighter, more saturated brand + accents so highlights read vividly on dark.
+    forest: '#56b083', forestSoft: '#69c79a', amber: '#e0954a', amberSoft: '#eea857',
+    rose: '#ef6157', roseSoft: '#f4756c', slate: '#0a0e13', slateLight: '#19202b',
+    // Tints: more saturated and a touch lighter than before (were too muted).
+    errorBg: '#3a1a1d', errorText: '#ff9a90', warningBg: '#3a2c12', warningText: '#f0b969',
+    successBg: '#16361f', successText: '#82d8a6', infoBg: '#142d45', infoText: '#7cb2ff',
+    amberBg: '#3a2e14', amberText: '#eeb96a', violetBg: '#241a3c',
+    surfaceAlt: '#161d26', successBgLight: '#163420', neutralBg: '#161c24',
+    selBg: '#1e3a5a', selBorder: '#3f78b4',
+    btnBg: '#2c3644', btnFg: '#eef1f6', btnHoverBg: '#37424f', btnBorder: '#3d4856',
+  },
+};
+
+function buildThemeCss() {
+  const toVars = obj => Object.entries(obj).map(([k, v]) => `--ct-${k}:${v};`).join('');
+  return `
+:root{${toVars(THEME_VARS.light)}color-scheme:light;}
+:root[data-theme="dark"]{${toVars(THEME_VARS.dark)}color-scheme:dark;}
+html,body{background:var(--ct-cream);}
+body{color:var(--ct-ink);}
+/* Scrollbars follow the theme */
+:root[data-theme="dark"] *{scrollbar-color:#3a424e var(--ct-paper);}
+:root[data-theme="dark"] ::-webkit-scrollbar{width:12px;height:12px;}
+:root[data-theme="dark"] ::-webkit-scrollbar-track{background:var(--ct-paper);}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb{background:#3a424e;border-radius:6px;border:3px solid var(--ct-paper);}
+/* ── Dark map ──────────────────────────────────────────────────────────────
+   Darken only the OSM raster tiles (not the marker/popup panes), so pins keep
+   their true metric colours while the basemap goes dark. */
+:root[data-theme="dark"] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.85);}
+:root[data-theme="dark"] .leaflet-container{background:#0c1014;}
+:root[data-theme="dark"] .leaflet-control-zoom a{background:var(--ct-surface);color:var(--ct-ink);border-color:var(--ct-border);}
+:root[data-theme="dark"] .leaflet-control-attribution{background:rgba(20,24,30,0.75)!important;color:var(--ct-warmGrey)!important;}
+:root[data-theme="dark"] .leaflet-control-attribution a{color:var(--ct-infoText)!important;}
+:root[data-theme="dark"] .leaflet-popup-content-wrapper,
+:root[data-theme="dark"] .leaflet-popup-tip{background:var(--ct-surface);color:var(--ct-ink);box-shadow:0 3px 14px rgba(0,0,0,0.5);}
+`;
+}
+
+function injectThemeStyles() {
+  try {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('ct-theme-vars')) return;
+    const el = document.createElement('style');
+    el.id = 'ct-theme-vars';
+    el.textContent = buildThemeCss();
+    document.head.appendChild(el);
+  } catch { /* no-op */ }
+}
+
+function getInitialTheme() {
+  try { const t = localStorage.getItem(THEME_KEY); if (t === 'dark' || t === 'light') return t; } catch { /* ignore */ }
+  try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; } catch { /* ignore */ }
+  return 'light';
+}
+
+function applyTheme(t) { try { document.documentElement.dataset.theme = t; } catch { /* ignore */ } }
+
+// Run immediately at module load — before React paints — to avoid a theme flash.
+injectThemeStyles();
+applyTheme(getInitialTheme());
 
 // === Z-index layer stack (M7) — always use these values, never ad-hoc ===
 // 10–11   Grid sticky headers / sticky column
@@ -1103,6 +1194,316 @@ async function buildPortfolioWorkbook({ filename, rows, lastDataRow }) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
 }
 
+// =================================================================
+// Dashboard "Download results" — a styled, multi-tab analysis workbook.
+// One tab per output, BAU and post-retrofit in separate tabs, every year.
+// Styling matches the Portfolio / Energy data exports (dark header band,
+// alternating row fills, thin borders, frozen panes, number formats).
+// =================================================================
+async function buildDashboardResultsWorkbook(opts) {
+  const {
+    buildings, buildingResults, fuels, efs, bills = [],
+    reportingCurrency = 'GBP', exchangeRates = {},
+    firstDataYear, refYear, hasRetrofits: portfolioHasRetrofits,
+    baseYear, baseMonth, sampleMode,
+  } = opts;
+
+  const ExcelJSmod = await import('exceljs');
+  const ExcelJS = ExcelJSmod.default || ExcelJSmod;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'CarbonTool';
+  wb.created = new Date();
+
+  const ARGB = h => 'FF' + h;
+  const thin = { top:{style:'thin',color:{argb:ARGB('E4E7EC')}}, left:{style:'thin',color:{argb:ARGB('E4E7EC')}}, bottom:{style:'thin',color:{argb:ARGB('E4E7EC')}}, right:{style:'thin',color:{argb:ARGB('E4E7EC')}} };
+  const fillOf = hex => ({ type:'pattern', pattern:'solid', fgColor:{argb:ARGB(hex)} });
+
+  const YEARS = CRREM_DATA.meta.years.filter(y => y >= firstDataYear);
+  const fuelName = code => fuels.find(f => f.code === code)?.name || code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  // Stable, sensible fuel ordering for rows
+  const FUEL_ORDER = ['electricity', 'natural_gas', 'oil', 'district_heating', 'district_cooling', 'renewables'];
+  const fuelSort = (a, b) => {
+    const ia = FUEL_ORDER.indexOf(a), ib = FUEL_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+  };
+
+  const expBuildings = buildings
+    .filter(b => buildingResults[b.id]?.hasEnergy)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  // ── Per-building helpers ──────────────────────────────────────────────────
+  const gia    = b => parseFloat(b.gia) || 1;
+  const fuelsOf = b => Object.keys(buildingResults[b.id]?.normByFuel || {}).sort(fuelSort);
+
+  const bauEnergy   = (b, fc) => buildingResults[b.id]?.normByFuel?.[fc] ?? 0; // total kWh, flat across years
+  const retroEnergy = (b, fc, year) => {
+    const res = buildingResults[b.id];
+    if (res?.hasRetrofits && res.fuelKwh_t_retro?.[year]) return res.fuelKwh_t_retro[year][fc] ?? 0;
+    return bauEnergy(b, fc); // no retrofit assigned → unchanged
+  };
+  const bauEmissions = (b, fc, year) => buildingResults[b.id]?.fuelC_t?.[fc]?.[year]; // tCO2e (null before firstYear)
+  const retroEmissions = (b, fc, year) => {
+    const res = buildingResults[b.id];
+    if (res?.fuelC_t?.[fc]?.[year] == null) return null; // keep null pattern before firstYear
+    const ef = getEF(fc, year, b.country, fuels, efs);
+    if (ef == null) return 0;
+    return (retroEnergy(b, fc, year) * ef) / 1000;
+  };
+
+  // Annual energy spend per building+fuel in the reporting currency (data-period total)
+  const billsAnnual = {};
+  bills.forEach(bl => {
+    if (bl.cost == null) return;
+    const from = exchangeRates[bl.currency || reportingCurrency] || 1;
+    const to   = exchangeRates[reportingCurrency] || 1;
+    const v = (Number(bl.cost) || 0) * (from / to);
+    (billsAnnual[bl.buildingId] ||= {});
+    billsAnnual[bl.buildingId][bl.fuel] = (billsAnnual[bl.buildingId][bl.fuel] || 0) + v;
+  });
+
+  const strandingScan = (b, valForYear) => {
+    const res = buildingResults[b.id]; if (!res) return null;
+    for (const y of YEARS) {
+      if (y < res.firstYear) continue;
+      const v = valForYear(y); const p = res.pathway_t?.[y];
+      // carbon vs co2 pathway handled by caller via valForYear/pathway choice
+      if (v == null) continue;
+      const target = res._targetFor ? res._targetFor(y) : p;
+      if (target != null && v > target) return y;
+    }
+    return null;
+  };
+  const carbonStrand = (b, retro) => {
+    const res = buildingResults[b.id]; if (!res) return null;
+    for (const y of YEARS) {
+      if (y < res.firstYear) continue;
+      const ci = retro ? (res.hasRetrofits ? res.ci_t_retro?.[y] : res.ci_t?.[y]) : res.ci_t?.[y];
+      const p = res.pathway_t?.[y];
+      if (ci != null && p != null && ci > p) return y;
+    }
+    return null;
+  };
+  const energyIntensityRetroYear = (b, year) => {
+    const res = buildingResults[b.id]; if (!res) return null;
+    if (year < res.firstYear) return null;
+    let kwh = 0; for (const fc of fuelsOf(b)) kwh += retroEnergy(b, fc, year) || 0;
+    return kwh / gia(b);
+  };
+  const energyStrand = (b, retro) => {
+    const res = buildingResults[b.id]; if (!res) return null;
+    for (const y of YEARS) {
+      if (y < res.firstYear) continue;
+      const ei = retro ? energyIntensityRetroYear(b, y) : res.energyIntensity;
+      const p = res.ei_pathway_t?.[y];
+      if (ei != null && p != null && ei > p) return y;
+    }
+    return null;
+  };
+  const strandLabel = y => (y == null ? 'Not stranded' : y);
+
+  // ── Generic styled-sheet writer ───────────────────────────────────────────
+  // labelCols: [{ header, width }]  rows: [{ labels:[...], cells:[...] }]
+  function addSheet({ name, title, subtitle, labelCols, yearCols = true, rows, numFmt }) {
+    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', xSplit: labelCols.length, ySplit: 3 }] });
+    const yearHeaders = yearCols ? YEARS : [];
+    const totalCols = labelCols.length + yearHeaders.length;
+
+    // Title band (brand green)
+    ws.mergeCells(1, 1, 1, totalCols);
+    const tCell = ws.getCell(1, 1);
+    tCell.value = title; tCell.fill = fillOf('3A7D5C');
+    tCell.font = { name: 'Arial', bold: true, size: 13, color: { argb: ARGB('FFFFFF') } };
+    tCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    ws.getRow(1).height = 24;
+
+    // Subtitle / units band
+    ws.mergeCells(2, 1, 2, totalCols);
+    const sCell = ws.getCell(2, 1);
+    sCell.value = subtitle; sCell.fill = fillOf('F3F4F6');
+    sCell.font = { name: 'Arial', italic: true, size: 10, color: { argb: ARGB('6B7280') } };
+    sCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    ws.getRow(2).height = 18;
+
+    // Header row (dark)
+    const headerVals = [...labelCols.map(c => c.header), ...yearHeaders];
+    const hr = ws.getRow(3);
+    headerVals.forEach((h, i) => { hr.getCell(i + 1).value = h; });
+    hr.height = 18;
+    hr.eachCell({ includeEmpty: false }, (c, col) => {
+      c.fill = fillOf('1E2530');
+      c.font = { name: 'Arial', bold: true, size: 10, color: { argb: ARGB('FFFFFF') } };
+      c.alignment = { vertical: 'middle', horizontal: col <= labelCols.length ? 'left' : 'right', indent: col <= labelCols.length ? 1 : 0 };
+      c.border = thin;
+    });
+
+    // Body
+    rows.forEach((row, ri) => {
+      const r = ws.getRow(4 + ri);
+      const vals = [...row.labels, ...(yearCols ? row.cells : [])];
+      vals.forEach((v, i) => {
+        const cell = r.getCell(i + 1);
+        cell.value = (v === null || v === undefined || v === '') ? null : v;
+        cell.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB');
+        cell.border = thin;
+        const isLabel = i < labelCols.length;
+        cell.font = { name: 'Arial', size: 10, color: { argb: ARGB(isLabel ? '111827' : '374151') }, bold: isLabel && i === 0 };
+        cell.alignment = { vertical: 'middle', horizontal: isLabel ? 'left' : 'right', indent: isLabel ? 1 : 0 };
+        if (!isLabel && typeof v === 'number' && numFmt) cell.numFmt = numFmt;
+      });
+      r.height = 15;
+    });
+
+    // Column widths + autofilter
+    labelCols.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
+    for (let i = 0; i < yearHeaders.length; i++) ws.getColumn(labelCols.length + 1 + i).width = 10;
+    ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: labelCols.length } };
+    return ws;
+  }
+
+  // Build per-(building × fuel) rows for a value function f(b, fc, year)
+  const perFuelRows = (f) => {
+    const out = [];
+    for (const b of expBuildings) {
+      for (const fc of fuelsOf(b)) {
+        out.push({
+          labels: [b.name, countryName(b.country) || b.country, fuelName(fc)],
+          cells: YEARS.map(y => { const v = f(b, fc, y); return (v == null || isNaN(v)) ? null : +(+v).toFixed(4); }),
+        });
+      }
+    }
+    return out;
+  };
+  // Build per-building rows for a value function f(b, year)
+  const perBuildingRows = (f) => expBuildings.map(b => ({
+    labels: [b.name, countryName(b.country) || b.country],
+    cells: YEARS.map(y => { const v = f(b, y); return (v == null || isNaN(v)) ? null : +(+v).toFixed(4); }),
+  }));
+
+  const fuelLabelCols = [{ header: 'Building', width: 28 }, { header: 'Country', width: 16 }, { header: 'Fuel', width: 18 }];
+  const bldgLabelCols = [{ header: 'Building', width: 28 }, { header: 'Country', width: 16 }];
+  const periodLabel = `${MONTHS?.[baseMonth - 1] || baseMonth} ${baseYear}`;
+  const showRetro = !!portfolioHasRetrofits;
+
+  // ── About / cover sheet ───────────────────────────────────────────────────
+  (() => {
+    const ws = wb.addWorksheet('About');
+    ws.getColumn(1).width = 26; ws.getColumn(2).width = 90;
+    const title = ws.getRow(1); ws.mergeCells(1, 1, 1, 2);
+    const tc = ws.getCell(1, 1); tc.value = 'CarbonTool — portfolio results';
+    tc.fill = fillOf('3A7D5C'); tc.font = { name: 'Arial', bold: true, size: 14, color: { argb: ARGB('FFFFFF') } };
+    tc.alignment = { vertical: 'middle', indent: 1 }; title.height = 26;
+    const meta = [
+      ['Exported', new Date().toLocaleString()],
+      ['Base period', periodLabel],
+      ['Reference year', String(refYear)],
+      ['Year range', `${YEARS[0]}–${YEARS[YEARS.length - 1]}`],
+      ['Reporting currency', reportingCurrency],
+      ['Buildings included', String(expBuildings.length) + ' (current dashboard filter)'],
+      ['Retrofit scenario', showRetro ? 'Included (separate "retrofit" tabs)' : 'No measures assigned — BAU only'],
+      ['', ''],
+      ['Scenarios', 'BAU = business-as-usual (energy held flat, grid emission factors decarbonise over time). Retrofit = after the assigned measures come online in their implementation years.'],
+      ['Stranding year', 'First year the building exceeds its CRREM 1.5°C target. "Not stranded" means it stays below the pathway through 2050.'],
+      ['Emissions', 'tCO₂e per year, by fuel. Emission intensity is kgCO₂e/m²/yr.'],
+      ['Energy', 'kWh per year, by fuel. Energy intensity is kWh/m²/yr. BAU energy is held flat; only the retrofit scenario changes over time.'],
+      ['Energy bills', `Annual spend in ${reportingCurrency}, derived from uploaded or inferred costs and held flat (no tariff escalation modelled). The retrofit tab scales spend by the modelled energy reduction.`],
+      ['Pathways', 'CRREM 1.5°C decarbonisation targets — GIA-weighted across each building\'s asset classes.'],
+    ];
+    meta.forEach(([k, v], i) => {
+      const r = ws.getRow(3 + i);
+      const c1 = r.getCell(1), c2 = r.getCell(2);
+      c1.value = k; c2.value = v;
+      c1.font = { name: 'Arial', bold: true, size: 10, color: { argb: ARGB('374151') } };
+      c2.font = { name: 'Arial', size: 10, color: { argb: ARGB('374151') } };
+      c1.alignment = { vertical: 'top', indent: 1 }; c2.alignment = { vertical: 'top', wrapText: true };
+    });
+    if (sampleMode) {
+      const r = ws.getRow(3 + meta.length + 1); ws.mergeCells(r.number, 1, r.number, 2);
+      const c = r.getCell(1); c.value = 'Note: this export is based on the built-in sample dataset — fictitious buildings and figures for demonstration only.';
+      c.fill = fillOf('FFFBEB'); c.font = { name: 'Arial', italic: true, size: 10, color: { argb: ARGB('92400E') } };
+      c.alignment = { wrapText: true, indent: 1 }; r.height = 28;
+    }
+  })();
+
+  // ── Stranding summary ─────────────────────────────────────────────────────
+  (() => {
+    const ws = wb.addWorksheet('Stranding summary', { views: [{ state: 'frozen', xSplit: 1, ySplit: 3 }] });
+    const cols = [
+      { header: 'Building', width: 28 }, { header: 'Country', width: 16 }, { header: 'Asset class', width: 22 },
+      { header: 'GIA (m²)', width: 12 }, { header: 'CI base (kgCO₂e/m²)', width: 18 }, { header: 'CI target base', width: 16 },
+      { header: 'Carbon stranding (BAU)', width: 20 }, { header: 'Carbon stranding (retrofit)', width: 22 },
+      { header: 'Energy stranding (BAU)', width: 20 }, { header: 'Energy stranding (retrofit)', width: 22 },
+    ];
+    const totalCols = cols.length;
+    ws.mergeCells(1, 1, 1, totalCols);
+    const tc = ws.getCell(1, 1); tc.value = 'Stranding summary'; tc.fill = fillOf('3A7D5C');
+    tc.font = { name: 'Arial', bold: true, size: 13, color: { argb: ARGB('FFFFFF') } };
+    tc.alignment = { vertical: 'middle', indent: 1 }; ws.getRow(1).height = 24;
+    ws.mergeCells(2, 1, 2, totalCols);
+    const sc = ws.getCell(2, 1); sc.value = `First year above the CRREM 1.5°C pathway · base period ${periodLabel}`;
+    sc.fill = fillOf('F3F4F6'); sc.font = { name: 'Arial', italic: true, size: 10, color: { argb: ARGB('6B7280') } };
+    sc.alignment = { vertical: 'middle', indent: 1 }; ws.getRow(2).height = 18;
+    const hr = ws.getRow(3); hr.height = 28;
+    cols.forEach((c, i) => {
+      const cell = hr.getCell(i + 1); cell.value = c.header; cell.fill = fillOf('1E2530');
+      cell.font = { name: 'Arial', bold: true, size: 10, color: { argb: ARGB('FFFFFF') } };
+      cell.alignment = { vertical: 'middle', horizontal: i === 0 ? 'left' : 'center', wrapText: true, indent: i === 0 ? 1 : 0 };
+      cell.border = thin;
+    });
+    expBuildings.forEach((b, ri) => {
+      const res = buildingResults[b.id];
+      const acStr = (b.assetClasses || []).map(ac => ac.code).join(', ');
+      const vals = [
+        b.name, countryName(b.country) || b.country, acStr, +gia(b),
+        res?.baseCI != null ? +res.baseCI.toFixed(3) : null,
+        res?.basePathway != null ? +res.basePathway.toFixed(3) : null,
+        strandLabel(carbonStrand(b, false)),
+        showRetro ? strandLabel(carbonStrand(b, true)) : '—',
+        strandLabel(energyStrand(b, false)),
+        showRetro ? strandLabel(energyStrand(b, true)) : '—',
+      ];
+      const r = ws.getRow(4 + ri);
+      vals.forEach((v, i) => {
+        const cell = r.getCell(i + 1); cell.value = (v === '' ? null : v);
+        cell.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB'); cell.border = thin;
+        cell.font = { name: 'Arial', size: 10, color: { argb: ARGB(i === 0 ? '111827' : '374151') }, bold: i === 0 };
+        cell.alignment = { vertical: 'middle', horizontal: i === 0 ? 'left' : (i <= 2 ? 'left' : 'center'), indent: i === 0 ? 1 : 0 };
+        if (i === 3) cell.numFmt = '#,##0';
+        if (i === 4 || i === 5) cell.numFmt = '0.000';
+      });
+      r.height = 15;
+    });
+    cols.forEach((c, i) => { ws.getColumn(i + 1).width = c.width; });
+    ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: totalCols } };
+  })();
+
+  // ── Per-fuel & per-building output tabs ───────────────────────────────────
+  addSheet({ name: 'Emissions by fuel (BAU)', title: 'Emissions by building & fuel — BAU', subtitle: 'tCO₂e per year · grid factors decarbonise over time, energy held flat', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => bauEmissions(b, fc, y)), numFmt: '#,##0.00' });
+  if (showRetro) addSheet({ name: 'Emissions by fuel (retrofit)', title: 'Emissions by building & fuel — post-retrofit', subtitle: 'tCO₂e per year · after assigned measures come online', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => retroEmissions(b, fc, y)), numFmt: '#,##0.00' });
+
+  addSheet({ name: 'Emission intensity (BAU)', title: 'Emission intensity by building & fuel — BAU', subtitle: 'kgCO₂e/m²/yr per year', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const e = bauEmissions(b, fc, y); return e == null ? null : (e * 1000) / gia(b); }), numFmt: '0.000' });
+  if (showRetro) addSheet({ name: 'Emission intensity (retrofit)', title: 'Emission intensity by building & fuel — post-retrofit', subtitle: 'kgCO₂e/m²/yr per year', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const e = retroEmissions(b, fc, y); return e == null ? null : (e * 1000) / gia(b); }), numFmt: '0.000' });
+
+  addSheet({ name: 'Energy by fuel (BAU)', title: 'Energy consumption by building & fuel — BAU', subtitle: 'kWh per year · normalised, held flat across the forecast', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const res = buildingResults[b.id]; return y < res.firstYear ? null : bauEnergy(b, fc); }), numFmt: '#,##0' });
+  if (showRetro) addSheet({ name: 'Energy by fuel (retrofit)', title: 'Energy consumption by building & fuel — post-retrofit', subtitle: 'kWh per year · after assigned measures come online', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const res = buildingResults[b.id]; return y < res.firstYear ? null : retroEnergy(b, fc, y); }), numFmt: '#,##0' });
+
+  addSheet({ name: 'Energy intensity (BAU)', title: 'Energy intensity by building & fuel — BAU', subtitle: 'kWh/m²/yr per year', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const res = buildingResults[b.id]; return y < res.firstYear ? null : bauEnergy(b, fc) / gia(b); }), numFmt: '0.00' });
+  if (showRetro) addSheet({ name: 'Energy intensity (retrofit)', title: 'Energy intensity by building & fuel — post-retrofit', subtitle: 'kWh/m²/yr per year', labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const res = buildingResults[b.id]; return y < res.firstYear ? null : retroEnergy(b, fc, y) / gia(b); }), numFmt: '0.00' });
+
+  addSheet({ name: 'Energy bills (BAU)', title: 'Energy bills by building & fuel — BAU', subtitle: `${reportingCurrency} per year · data-period spend held flat (no tariff escalation)`, labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const res = buildingResults[b.id]; if (y < res.firstYear) return null; return billsAnnual[b.id]?.[fc] ?? 0; }), numFmt: '#,##0.00' });
+  if (showRetro) addSheet({ name: 'Energy bills (retrofit)', title: 'Energy bills by building & fuel — post-retrofit', subtitle: `${reportingCurrency} per year · scaled by modelled energy reduction`, labelCols: fuelLabelCols, rows: perFuelRows((b, fc, y) => { const res = buildingResults[b.id]; if (y < res.firstYear) return null; const base = billsAnnual[b.id]?.[fc] ?? 0; const be = bauEnergy(b, fc); return be > 0 ? base * (retroEnergy(b, fc, y) / be) : 0; }), numFmt: '#,##0.00' });
+
+  addSheet({ name: 'Carbon pathway', title: 'Carbon pathway by building (CRREM 1.5°C)', subtitle: 'kgCO₂e/m²/yr target · GIA-weighted across asset classes', labelCols: bldgLabelCols, rows: perBuildingRows((b, y) => buildingResults[b.id]?.pathway_t?.[y]), numFmt: '0.000' });
+  addSheet({ name: 'Energy pathway', title: 'Energy pathway by building (CRREM 1.5°C)', subtitle: 'kWh/m²/yr target · GIA-weighted across asset classes', labelCols: bldgLabelCols, rows: perBuildingRows((b, y) => buildingResults[b.id]?.ei_pathway_t?.[y]), numFmt: '0.00' });
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `carbontool_results_${refYear}.xlsx`; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
+}
+
 // Pivot long-format time-series records into wide rows for export: one row per
 // identity (e.g. building × fuel), one column per Month-Year period present in the
 // data (European format, e.g. "01-2024"). `records` items:
@@ -1433,11 +1834,12 @@ function validateBillRow(row, bldgLookup) {
 // =================================================================
 function Button({ onClick, children, variant = 'default', size = 'md', icon: Icon, disabled, style, ...rest }) {
   const variants = {
-    default: { bg: T.ink, fg: T.cream, hoverBg: T.inkSoft, border: 'none' },
+    default: { bg: T.btnBg, fg: T.btnFg, hoverBg: T.btnHoverBg, border: '1px solid ' + T.btnBorder },
+    primary: { bg: T.btnBg, fg: T.btnFg, hoverBg: T.btnHoverBg, border: '1px solid ' + T.btnBorder },
     secondary: { bg: 'transparent', fg: T.ink, hoverBg: T.paper, border: '1px solid ' + T.border },
     ghost: { bg: 'transparent', fg: T.warmGrey, hoverBg: T.paper, border: 'none' },
-    danger: { bg: T.rose, fg: T.cream, hoverBg: '#7d2820', border: 'none' },
-    success: { bg: T.forest, fg: T.cream, hoverBg: '#1f4429', border: 'none' },
+    danger: { bg: T.rose, fg: '#fff', hoverBg: T.roseSoft, border: 'none' },
+    success: { bg: T.forest, fg: '#fff', hoverBg: T.forestSoft, border: 'none' },
   };
   const v = variants[variant] || variants.default;
   const sizes = { sm: { p: '6px 10px', fs: 12 }, md: { p: '9px 14px', fs: 13 }, lg: { p: '12px 20px', fs: 14 } };
@@ -1478,7 +1880,7 @@ function Input({ label, value, onChange, type = 'text', error, hint, suffix, sty
           onKeyDown={type === 'number' ? (e => { if (['e','E','+','-'].includes(e.key)) e.preventDefault(); }) : undefined}
           style={{
             width: '100%', padding: '10px 12px', paddingRight: suffix ? 36 : 12,
-            background: '#fff', border: '1px solid ' + (error ? T.rose : T.border),
+            background: T.surface, border: '1px solid ' + (error ? T.rose : T.border),
             fontFamily: T.body, fontSize: 14, color: T.ink, outline: 'none',
             borderRadius: '6px', boxSizing: 'border-box', ...style,
           }}
@@ -1517,7 +1919,7 @@ function MultiSelect({ placeholder, selected, onChange, options, style }) {
         style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '7px 10px', fontFamily: T.body, fontSize: 13, color: selected.size > 0 ? T.ink : T.warmGrey,
-          background: '#fff', border: '1px solid ' + T.border, borderRadius: 6, cursor: 'pointer',
+          background: T.surface, border: '1px solid ' + T.border, borderRadius: 6, cursor: 'pointer',
           gap: 6, whiteSpace: 'nowrap', overflow: 'hidden',
         }}
       >
@@ -1529,7 +1931,7 @@ function MultiSelect({ placeholder, selected, onChange, options, style }) {
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, minWidth: '100%',
-          background: '#fff', border: '1px solid ' + T.border, borderRadius: 6,
+          background: T.surface, border: '1px solid ' + T.border, borderRadius: 6,
           boxShadow: SHADOW_MD, zIndex: T.z.dropdown, maxHeight: 240, overflowY: 'auto',
         }}>
           {options.map(opt => {
@@ -1537,15 +1939,15 @@ function MultiSelect({ placeholder, selected, onChange, options, style }) {
             return (
               <div key={opt.value} onClick={() => toggle(opt.value)} style={{
                 display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
-                cursor: 'pointer', background: checked ? T.paper : '#fff',
+                cursor: 'pointer', background: checked ? T.paper : T.surface,
                 fontFamily: T.body, fontSize: 13, color: T.ink,
               }}
                 onMouseEnter={e => e.currentTarget.style.background = T.paper}
-                onMouseLeave={e => e.currentTarget.style.background = checked ? T.paper : '#fff'}
+                onMouseLeave={e => e.currentTarget.style.background = checked ? T.paper : T.surface}
               >
                 <div style={{
                   width: 14, height: 14, border: '1.5px solid ' + (checked ? T.forest : T.border),
-                  borderRadius: 3, background: checked ? T.forest : '#fff', flexShrink: 0,
+                  borderRadius: 3, background: checked ? T.forest : T.surface, flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {checked && <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 4l2 2 4-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -1602,7 +2004,7 @@ function Modal({ open, onClose, title, children, width = 720, disableBackdropCli
       overflowY: 'auto',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: '#fff', width: '100%', maxWidth: width,
+        background: T.surface, width: '100%', maxWidth: width,
         boxShadow: '0 20px 60px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column',
         borderRadius: '8px', overflow: 'hidden',
       }}>
@@ -1691,7 +2093,7 @@ function PageHeader({ title, description, actions }) {
 
 function EmptyState({ icon: Icon, title, message, action }) {
   return (
-    <div style={{ background: '#fff', border: '1px solid ' + T.border, padding: '60px 32px', textAlign: 'center', borderRadius: '8px' }}>
+    <div style={{ background: T.surface, border: '1px solid ' + T.border, padding: '60px 32px', textAlign: 'center', borderRadius: '8px' }}>
       {Icon && <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
         <div style={{ width: 56, height: 56, borderRadius: '50%', background: T.successBg, border: '1px solid ' + T.forestSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon size={24} color={T.forest} strokeWidth={1.5} />
@@ -1708,7 +2110,7 @@ function EmptyState({ icon: Icon, title, message, action }) {
 function TabInfoAccordion({ title, children }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ marginBottom: 24, border: '1px solid ' + T.border, borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+    <div style={{ marginBottom: 24, border: '1px solid ' + T.border, borderRadius: 8, overflow: 'hidden', background: T.surface }}>
       <button
         onClick={() => setOpen(v => !v)}
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '11px 16px', border: 'none', background: 'transparent', cursor: 'pointer', gap: 12 }}
@@ -1950,7 +2352,7 @@ function OverviewTab({ buildings, energy, onNavigate, setBuildings, setEnergy, s
           <div key={s.num} style={{
             display: 'grid', gridTemplateColumns: '32px 180px 1fr 110px',
             alignItems: 'center', padding: '14px 18px', gap: 12,
-            background: '#fff', border: '1px solid ' + T.border,
+            background: T.surface, border: '1px solid ' + T.border,
             borderRadius: '6px', marginBottom: 6,
           }}>
             <div style={{ fontFamily: T.mono, fontSize: 11, color: T.warmGreyLight }}>
@@ -1975,15 +2377,15 @@ function StatCard({ label, value, sublabel, accent, delta, deltaText, deltaGood,
   const hasDelta = (delta != null && isFinite(delta)) || deltaText != null;
   const isGood = deltaText != null ? !!deltaGood : (delta != null && delta < 0);
   const deltaColor  = isGood ? '#16a34a' : '#dc2626';
-  const deltaBg     = isGood ? '#f0fdf4' : '#fef2f2';
-  const deltaBorder = isGood ? '#bbf7d0' : '#fecaca';
+  const deltaBg     = isGood ? T.successBgLight : T.errorBg;
+  const deltaBorder = isGood ? T.successBg : T.errorBg;
   const badge = deltaText != null
     ? deltaText
     : delta != null ? (delta < 0 ? '▼ ' : '▲ ') + Math.abs(delta).toFixed(1) + '% vs BAU' : null;
   const stripeColor = accent && accent !== T.ink ? accent : T.border;
   return (
     <div style={{
-      padding: '14px 16px', background: '#fff',
+      padding: '14px 16px', background: T.surface,
       border: '1px solid ' + T.border,
       borderLeft: '4px solid ' + stripeColor,
       borderRadius: '8px',
@@ -2021,11 +2423,11 @@ function StatCard({ label, value, sublabel, accent, delta, deltaText, deltaGood,
 
 function StatusBadge({ status }) {
   const styles = {
-    done:    { bg: '#dcfce7', fg: '#166534',     label: 'Complete'    },
-    partial: { bg: '#fef9c3', fg: '#854d0e',     label: 'Partial'     },
-    next:    { bg: '#fef3c7', fg: '#92400e',     label: 'In progress' },
+    done:    { bg: T.successBg, fg: T.successText,     label: 'Complete'    },
+    partial: { bg: T.warningBg, fg: T.warningText,     label: 'Partial'     },
+    next:    { bg: T.amberBg, fg: T.amberText,     label: 'In progress' },
     pending: { bg: T.paper,   fg: T.warmGreyLight, label: 'Queued'    },
-    planned: { bg: '#eff6ff', fg: '#1e40af',     label: 'Planned'     },
+    planned: { bg: T.infoBg, fg: T.infoText,     label: 'Planned'     },
   }[status] || { bg: T.paper, fg: T.warmGreyLight, label: status };
   return (
     <div style={{
@@ -2040,7 +2442,7 @@ function ReferencePanel({ icon: Icon, title, count, items, initialShow = 8 }) {
   const [expanded, setExpanded] = useState(false);
   const display = expanded ? items : items.slice(0, initialShow);
   return (
-    <div style={{ padding: '20px 24px', background: '#fff', border: '1px solid ' + T.border, borderRadius: '8px' }}>
+    <div style={{ padding: '20px 24px', background: T.surface, border: '1px solid ' + T.border, borderRadius: '8px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <Icon size={15} color={T.forest} strokeWidth={1.8} />
         <span style={{ fontFamily: T.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{title}</span>
@@ -2065,12 +2467,12 @@ function ActionCard({ num, title, desc, action, actionLabel, secondaryAction, se
   return (
     <div style={{
       padding: '20px 24px', borderRadius: '8px', display: 'flex', flexDirection: 'column',
-      background: highlight ? '#f0faf4' : '#fff',
+      background: highlight ? T.successBg : T.surface,
       border: '1px solid ' + (highlight ? T.forestSoft : T.border),
       borderLeft: highlight ? '4px solid ' + T.forest : '4px solid ' + T.border,
     }}>
       <h3 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: highlight ? T.forest : T.ink, margin: '0 0 8px' }}>{title}</h3>
-      <p style={{ fontFamily: T.body, fontSize: 13, color: highlight ? '#3d7055' : T.warmGrey, lineHeight: 1.6, margin: '0 0 20px', flexGrow: 1 }}>{desc}</p>
+      <p style={{ fontFamily: T.body, fontSize: 13, color: highlight ? T.successText : T.warmGrey, lineHeight: 1.6, margin: '0 0 20px', flexGrow: 1 }}>{desc}</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {action && <Button onClick={action} icon={ChevronRight} variant={highlight ? 'primary' : 'success'} style={{ alignSelf: 'flex-start' }}>{actionLabel}</Button>}
         {secondaryAction && <Button onClick={secondaryAction} variant="secondary" style={{ alignSelf: 'flex-start' }}>{secondaryLabel}</Button>}
@@ -2588,7 +2990,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
       </TabInfoAccordion>
 
       {buildings.length > 0 && (
-        <div style={{ marginBottom: 24, padding: '14px 18px', background: '#f0faf4', border: '1px solid ' + T.forestSoft, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ marginBottom: 24, padding: '14px 18px', background: T.successBg, border: '1px solid ' + T.forestSoft, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
             <div style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: T.forest, marginBottom: 2 }}>Portfolio ready — add energy data next</div>
             <div style={{ fontFamily: T.body, fontSize: 13, color: T.forestSoft }}>Upload or paste monthly energy readings to unlock the Dashboard and CRREM analysis.</div>
@@ -2621,7 +3023,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
               width: '100%', boxSizing: 'border-box',
               fontFamily: T.body, fontSize: 13, color: T.ink,
               border: '1px solid ' + T.border, borderRadius: 8,
-              padding: '8px 14px', outline: 'none', background: '#fff',
+              padding: '8px 14px', outline: 'none', background: T.surface,
             }}
           />
         </div>
@@ -2631,8 +3033,8 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           {[
             { key: 'all', label: 'All', count: buildings.length },
-            { key: 'errors', label: 'Errors', count: errBuildings.length, color: T.rose, bg: '#fef2f2' },
-            { key: 'warnings', label: 'Warnings', count: warnBuildings.length, color: T.amber, bg: '#fffbeb' },
+            { key: 'errors', label: 'Errors', count: errBuildings.length, color: T.rose, bg: T.errorBg },
+            { key: 'warnings', label: 'Warnings', count: warnBuildings.length, color: T.amber, bg: T.warningBg },
           ].map(({ key, label, count, color, bg }) => {
             const active = issueFilter === key;
             return (
@@ -2640,7 +3042,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '6px 12px', borderRadius: '20px', cursor: 'pointer',
                 fontFamily: T.body, fontSize: 13, fontWeight: active ? 600 : 400,
-                background: active ? (bg || T.slate) : '#fff',
+                background: active ? (bg || T.btnBg) : T.surface,
                 color: active ? (color || '#fff') : T.warmGrey,
                 border: '1px solid ' + (active ? (color || T.slate) : T.border),
                 transition: 'all 0.12s',
@@ -2676,7 +3078,7 @@ function PortfolioTab({ buildings, setBuildings, energy, setEnergy, setBills, se
           }
         />
       ) : filteredBuildings.length === 0 ? (
-        <div style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: '8px', padding: '48px 32px', textAlign: 'center', fontFamily: T.body, fontSize: 14, color: T.warmGrey }}>
+        <div style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: '8px', padding: '48px 32px', textAlign: 'center', fontFamily: T.body, fontSize: 14, color: T.warmGrey }}>
           No buildings match{portfolioSearch ? ' "' + portfolioSearch + '"' : ' this filter'}.
           {portfolioSearch && <button onClick={() => setPortfolioSearch('')} style={{ display: 'block', margin: '8px auto 0', fontFamily: T.body, fontSize: 13, color: T.forest, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear search</button>}
         </div>
@@ -2712,7 +3114,7 @@ function BuildingsTable({ buildings, allBuildings, buildingValidationMap, onEdit
   const totalPages = Math.max(1, Math.ceil(buildings.length / PAGE));
   const pageBuildings = buildings.slice(page * PAGE, (page + 1) * PAGE);
   return (
-    <div style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: '8px', overflow: 'auto' }}>
+    <div style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: '8px', overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: T.body, fontSize: 13 }}>
         <thead>
           <tr style={{ background: T.paper, borderBottom: '1px solid ' + T.border, position: 'sticky', top: 0 }}>
@@ -2731,7 +3133,7 @@ function BuildingsTable({ buildings, allBuildings, buildingValidationMap, onEdit
             const hasError = v.errors.length > 0;
             const hasWarn = v.warnings.length > 0;
             const hasIssue = hasError || hasWarn;
-            const rowBg = hasError ? '#fff8f8' : 'transparent';
+            const rowBg = hasError ? T.errorBg : 'transparent';
             return (
               <tr key={b.id} style={{
                 borderBottom: i === pageBuildings.length - 1 ? 'none' : '1px solid ' + T.borderSoft,
@@ -2801,11 +3203,11 @@ function BuildingsTable({ buildings, allBuildings, buildingValidationMap, onEdit
             {page * PAGE + 1}–{Math.min((page + 1) * PAGE, buildings.length)} of {buildings.length} buildings
           </span>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => setPage(0)} disabled={page === 0} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>«</button>
-            <button onClick={() => setPage(p => p - 1)} disabled={page === 0} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>‹ Prev</button>
+            <button onClick={() => setPage(0)} disabled={page === 0} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>«</button>
+            <button onClick={() => setPage(p => p - 1)} disabled={page === 0} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.4 : 1 }}>‹ Prev</button>
             <span style={{ padding: '4px 10px', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{page + 1} / {totalPages}</span>
-            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>Next ›</button>
-            <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>»</button>
+            <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages - 1} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>Next ›</button>
+            <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.4 : 1 }}>»</button>
           </div>
         </div>
       )}
@@ -3335,8 +3737,8 @@ const DataCell = React.memo(function DataCell({
   const isEmpty = val === '' || val == null;
   const isZero  = !isEmpty && num === 0;
   const isNeg   = !isEmpty && num < 0;
-  const rowBg   = isOcc ? '#f0fdf9' : '#fff';
-  const bg = editing ? '#eff6ff' : sel ? '#dbeafe' : isNeg ? '#fef2f2' : isZero ? '#fffbeb' : rowBg;
+  const rowBg   = isOcc ? T.successBgLight : T.surface;
+  const bg = editing ? T.infoBg : sel ? T.selBg : isNeg ? T.errorBg : isZero ? T.warningBg : rowBg;
   return (
     <td
       onMouseDown={(e) => onCellMouseDown(e, tag, rowIdx, colIdx)}
@@ -3344,7 +3746,7 @@ const DataCell = React.memo(function DataCell({
       onDoubleClick={() => onCellDblClick(tag, rowIdx, colIdx)}
       style={{
         padding: 0, textAlign: 'right', borderRight: '1px solid ' + T.borderSoft,
-        background: bg, outline: anch ? '2px solid #1d4ed8' : sel ? '1px solid #93c5fd' : 'none',
+        background: bg, outline: anch ? '2px solid #1d4ed8' : sel ? '1px solid var(--ct-selBorder)' : 'none',
         outlineOffset: '-2px', cursor: 'default', minWidth: COL_W, userSelect: 'none',
       }}
     >
@@ -3400,7 +3802,7 @@ function CurrencySettingsModal({ open, onClose, reportingCurrency, setReportingC
         <select
           value={reportingCurrency}
           onChange={e => setReportingCurrency(e.target.value)}
-          style={{ width: '100%', padding: '9px 12px', border: '1px solid ' + T.border, borderRadius: 6, fontFamily: T.body, fontSize: 14, background: '#fff', color: T.ink }}
+          style={{ width: '100%', padding: '9px 12px', border: '1px solid ' + T.border, borderRadius: 6, fontFamily: T.body, fontSize: 14, background: T.surface, color: T.ink }}
         >
           {CURRENCIES.map(c => (
             <option key={c.code} value={c.code}>{c.symbol} — {c.name} ({c.code})</option>
@@ -4286,7 +4688,7 @@ if (buildings.length===0) return (
       </TabInfoAccordion>
 
       {energy.length > 0 && (
-        <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0faf4', border: '1px solid ' + T.forestSoft, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ marginBottom: 20, padding: '14px 18px', background: T.successBg, border: '1px solid ' + T.forestSoft, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
             <div style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: T.forest, marginBottom: 2 }}>Energy data ready — explore the Dashboard</div>
             <div style={{ fontFamily: T.body, fontSize: 13, color: T.forestSoft }}>View carbon intensities, CRREM stranding risk, and benchmark your portfolio against the 1.5°C pathway.</div>
@@ -4296,7 +4698,7 @@ if (buildings.length===0) return (
       )}
 
       {/* Date range toolbar */}
-      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,background:'#fff',border:'1px solid '+T.border,borderRadius:'8px',padding:'10px 16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,background:T.surface,border:'1px solid '+T.border,borderRadius:'8px',padding:'10px 16px'}}>
         <span style={{fontFamily:T.body,fontSize:13,color:T.warmGrey,fontWeight:500,whiteSpace:'nowrap'}}>Date range</span>
         <Select value={startMonth} onChange={v=>{
           const nm = Number(v);
@@ -4334,7 +4736,7 @@ if (buildings.length===0) return (
           placeholder="Search all sections…"
           value={globalSearch}
           onChange={e => { setGlobalSearch(e.target.value); setEPage(0); setOPage(0); setBPage(0); }}
-          style={{ fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 6, padding: '5px 10px', outline: 'none', width: 200, background: globalSearch ? T.successBg : '#fff', borderColor: globalSearch ? T.forest : T.border }}
+          style={{ fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 6, padding: '5px 10px', outline: 'none', width: 200, background: globalSearch ? T.successBg : T.surface, borderColor: globalSearch ? T.forest : T.border }}
         />
         {globalSearch && <button onClick={() => setGlobalSearch('')} style={{ fontFamily: T.body, fontSize: 12, color: T.forest, background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px' }}>✕</button>}
         {dirty && <Button variant="secondary" size="sm" onClick={()=>{undo();}}>Undo</Button>}
@@ -4367,15 +4769,15 @@ if (buildings.length===0) return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               {[
                 { key: 'all',      label: 'All rows', count: eRows.length },
-                { key: 'errors',   label: 'Errors',   count: totalErrCount,                       color: T.rose,  bg: '#fef2f2' },
-                { key: 'warnings', label: 'Warnings', count: eWarnCount + duplicateRows.length + coverageIssues.noOcc.length, color: T.amber, bg: '#fffbeb' },
+                { key: 'errors',   label: 'Errors',   count: totalErrCount,                       color: T.rose,  bg: T.errorBg },
+                { key: 'warnings', label: 'Warnings', count: eWarnCount + duplicateRows.length + coverageIssues.noOcc.length, color: T.amber, bg: T.warningBg },
               ].map(({ key, label, count, color, bg }) => {
                 const active = eIssueFilter === key;
                 return (
                   <button key={key} onClick={() => { setEIssueFilter(key); setEPage(0); }} style={{
                     display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
                     fontFamily: T.body, fontSize: 13, fontWeight: active ? 600 : 400,
-                    background: active ? (bg || T.slate) : '#fff',
+                    background: active ? (bg || T.btnBg) : T.surface,
                     color: active ? (color || '#fff') : T.warmGrey,
                     border: '1px solid ' + (active ? (color || T.slate) : T.border),
                     transition: 'all 0.12s',
@@ -4423,7 +4825,7 @@ if (buildings.length===0) return (
 
       <div style={{border:'1px solid '+T.border,borderRadius:'8px',overflow:'hidden',marginBottom:28}}>
         <div ref={eGridRef} tabIndex={0} onKeyDown={makeGridKeyDown('e')} onPaste={makePasteHandler('e')}
-          style={{overflow:'auto',background:'#fff',maxHeight:'40vh',outline:'none'}}>
+          style={{overflow:'auto',background:T.surface,maxHeight:'40vh',outline:'none'}}>
         <table style={{borderCollapse:'collapse',tableLayout:'auto'}}>
           <colgroup>
             <col style={{width:BLD_W}}/><col style={{width:FUEL_W}}/>
@@ -4443,7 +4845,7 @@ if (buildings.length===0) return (
             {filteredERows.slice(ePage*GRID_PAGE, (ePage+1)*GRID_PAGE).map((rowIdx, pageIdx)=>{
               const row = eRows[rowIdx];
               const rowIssue = eRowIssues[rowIdx] || { errors: [], warnings: [] };
-              const rowBg = rowIssue.errors.length > 0 ? '#fef2f2' : rowIssue.warnings.length > 0 ? '#fffbeb' : '#fff';
+              const rowBg = rowIssue.errors.length > 0 ? T.errorBg : rowIssue.warnings.length > 0 ? T.warningBg : T.surface;
               return (
               <tr key={row.id} style={{background: rowBg, borderBottom:'1px solid '+T.borderSoft}}>
                 <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
@@ -4483,11 +4885,11 @@ if (buildings.length===0) return (
               Rows {ePage*GRID_PAGE+1}–{Math.min((ePage+1)*GRID_PAGE,filteredERows.length)} of {filteredERows.length}
             </span>
             <div style={{display:'flex',gap:4}}>
-              <button onClick={()=>setEPage(0)} disabled={ePage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:ePage===0?'default':'pointer',opacity:ePage===0?0.4:1}}>«</button>
-              <button onClick={()=>setEPage(p=>p-1)} disabled={ePage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:ePage===0?'default':'pointer',opacity:ePage===0?0.4:1}}>‹</button>
+              <button onClick={()=>setEPage(0)} disabled={ePage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:ePage===0?'default':'pointer',opacity:ePage===0?0.4:1}}>«</button>
+              <button onClick={()=>setEPage(p=>p-1)} disabled={ePage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:ePage===0?'default':'pointer',opacity:ePage===0?0.4:1}}>‹</button>
               <span style={{padding:'3px 8px',fontFamily:T.mono,fontSize:11,color:T.inkSoft}}>{ePage+1}/{Math.ceil(filteredERows.length/GRID_PAGE)}</span>
-              <button onClick={()=>setEPage(p=>p+1)} disabled={ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?'default':'pointer',opacity:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?0.4:1}}>›</button>
-              <button onClick={()=>setEPage(Math.ceil(filteredERows.length/GRID_PAGE)-1)} disabled={ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?'default':'pointer',opacity:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?0.4:1}}>»</button>
+              <button onClick={()=>setEPage(p=>p+1)} disabled={ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?'default':'pointer',opacity:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?0.4:1}}>›</button>
+              <button onClick={()=>setEPage(Math.ceil(filteredERows.length/GRID_PAGE)-1)} disabled={ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?'default':'pointer',opacity:ePage>=Math.ceil(filteredERows.length/GRID_PAGE)-1?0.4:1}}>»</button>
             </div>
           </div>
         )}
@@ -4516,8 +4918,8 @@ if (buildings.length===0) return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {[
                 { key: 'all',      label: 'All rows', count: oRows.length },
-                { key: 'errors',   label: 'Errors',   count: totalOErrCount,                              color: T.rose,  bg: '#fef2f2' },
-                { key: 'warnings', label: 'Warnings', count: oWarnCount + duplicateOccRows.length,         color: T.amber, bg: '#fffbeb' },
+                { key: 'errors',   label: 'Errors',   count: totalOErrCount,                              color: T.rose,  bg: T.errorBg },
+                { key: 'warnings', label: 'Warnings', count: oWarnCount + duplicateOccRows.length,         color: T.amber, bg: T.warningBg },
               ].map(({ key, label, count, color, bg }) => {
                 const active = oIssueFilter === key;
                 return (
@@ -4525,7 +4927,7 @@ if (buildings.length===0) return (
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
                     fontFamily: T.body, fontSize: 13, fontWeight: active ? 600 : 400,
-                    background: active ? (bg || T.slate) : '#fff',
+                    background: active ? (bg || T.btnBg) : T.surface,
                     color: active ? (color || '#fff') : T.warmGrey,
                     border: '1px solid ' + (active ? (color || T.slate) : T.border),
                     transition: 'all 0.12s',
@@ -4565,7 +4967,7 @@ if (buildings.length===0) return (
 
       <div style={{border:'1px solid '+T.border,borderRadius:'8px',overflow:'hidden',marginBottom:16}}>
         <div ref={oGridRef} tabIndex={0} onKeyDown={makeGridKeyDown('o')} onPaste={makePasteHandler('o')}
-          style={{overflow:'auto',background:'#fff',maxHeight:'40vh',outline:'none'}}>
+          style={{overflow:'auto',background:T.surface,maxHeight:'40vh',outline:'none'}}>
         <table style={{borderCollapse:'collapse',tableLayout:'auto'}}>
           <colgroup>
             <col style={{width:BLD_W}}/>
@@ -4584,7 +4986,7 @@ if (buildings.length===0) return (
             {filteredORows.slice(oPage*GRID_PAGE, (oPage+1)*GRID_PAGE).map((rowIdx, pageIdx)=>{
               const row = oRows[rowIdx];
               const rowIssue = oRowIssues[rowIdx] || { errors: [], warnings: [] };
-              const rowBg = rowIssue.errors.length > 0 ? '#fef2f2' : rowIssue.warnings.length > 0 ? '#fffbeb' : '#f0fdf9';
+              const rowBg = rowIssue.errors.length > 0 ? T.errorBg : rowIssue.warnings.length > 0 ? T.warningBg : T.successBgLight;
               return (
               <tr key={row.id} style={{background: rowBg, borderBottom:'1px solid '+T.borderSoft}}>
                 <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
@@ -4617,11 +5019,11 @@ if (buildings.length===0) return (
               Rows {oPage*GRID_PAGE+1}–{Math.min((oPage+1)*GRID_PAGE,filteredORows.length)} of {filteredORows.length}
             </span>
             <div style={{display:'flex',gap:4}}>
-              <button onClick={()=>setOPage(0)} disabled={oPage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:oPage===0?'default':'pointer',opacity:oPage===0?0.4:1}}>«</button>
-              <button onClick={()=>setOPage(p=>p-1)} disabled={oPage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:oPage===0?'default':'pointer',opacity:oPage===0?0.4:1}}>‹</button>
+              <button onClick={()=>setOPage(0)} disabled={oPage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:oPage===0?'default':'pointer',opacity:oPage===0?0.4:1}}>«</button>
+              <button onClick={()=>setOPage(p=>p-1)} disabled={oPage===0} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:oPage===0?'default':'pointer',opacity:oPage===0?0.4:1}}>‹</button>
               <span style={{padding:'3px 8px',fontFamily:T.mono,fontSize:11,color:T.inkSoft}}>{oPage+1}/{Math.ceil(filteredORows.length/GRID_PAGE)}</span>
-              <button onClick={()=>setOPage(p=>p+1)} disabled={oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?'default':'pointer',opacity:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?0.4:1}}>›</button>
-              <button onClick={()=>setOPage(Math.ceil(filteredORows.length/GRID_PAGE)-1)} disabled={oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:'#fff',cursor:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?'default':'pointer',opacity:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?0.4:1}}>»</button>
+              <button onClick={()=>setOPage(p=>p+1)} disabled={oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?'default':'pointer',opacity:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?0.4:1}}>›</button>
+              <button onClick={()=>setOPage(Math.ceil(filteredORows.length/GRID_PAGE)-1)} disabled={oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1} style={{padding:'3px 8px',fontFamily:T.body,fontSize:12,border:'1px solid '+T.border,borderRadius:4,background:T.surface,cursor:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?'default':'pointer',opacity:oPage>=Math.ceil(filteredORows.length/GRID_PAGE)-1?0.4:1}}>»</button>
             </div>
           </div>
         )}
@@ -4716,7 +5118,7 @@ if (buildings.length===0) return (
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
                         fontFamily: T.body, fontSize: 13, fontWeight: active ? 600 : 400,
-                        background: active ? (bg || T.slate) : '#fff',
+                        background: active ? (bg || T.btnBg) : T.surface,
                         color: active ? (color || '#fff') : T.warmGrey,
                         border: '1px solid ' + (active ? (color || T.slate) : T.border),
                         transition: 'all 0.12s',
@@ -4765,7 +5167,7 @@ if (buildings.length===0) return (
               <div tabIndex={0} ref={bGridRef}
                 onKeyDown={makeGridKeyDown('b')}
                 onPaste={makePasteHandler('b')}
-                style={{ overflow: 'auto', background: '#fff', maxHeight: '40vh', outline: 'none' }}>
+                style={{ overflow: 'auto', background: T.surface, maxHeight: '40vh', outline: 'none' }}>
                 <table style={{ borderCollapse: 'collapse', tableLayout: 'auto' }}>
                   <colgroup>
                     <col style={{ width: BLD_W }} />
@@ -4792,8 +5194,8 @@ if (buildings.length===0) return (
                       const sym = currencySymbol(rowCurrency);
                       const bIssue = bRowIssues[rowIdx] || { errors: [], warnings: [] };
                       return (
-                        <tr key={row.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: bIssue.errors.length > 0 ? T.errorBg : bIssue.warnings.length > 0 ? T.warningBg : '#fffdf5', borderLeft: bIssue.errors.length > 0 ? '3px solid ' + T.rose : bIssue.warnings.length > 0 ? '3px solid ' + T.amber : '3px solid transparent' }}>
-                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: '#fffdf5', zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
+                        <tr key={row.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: bIssue.errors.length > 0 ? T.errorBg : bIssue.warnings.length > 0 ? T.warningBg : T.warningBg, borderLeft: bIssue.errors.length > 0 ? '3px solid ' + T.rose : bIssue.warnings.length > 0 ? '3px solid ' + T.amber : '3px solid transparent' }}>
+                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: T.warningBg, zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
                             <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e => updateBMeta(rowIdx, { buildingId: e.target.value })}
                               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 13, color: T.ink, outline: 'none', cursor: 'pointer' }} />
                           </td>
@@ -4842,11 +5244,11 @@ if (buildings.length===0) return (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderTop: '1px solid ' + T.border, background: T.paper }}>
                   <span style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey }}>Rows {bPage * GRID_PAGE + 1}–{Math.min((bPage + 1) * GRID_PAGE, filteredBRows.length)} of {filteredBRows.length}</span>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    <button onClick={() => setBPage(0)} disabled={bPage === 0} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: bPage === 0 ? 'default' : 'pointer', opacity: bPage === 0 ? 0.4 : 1 }}>«</button>
-                    <button onClick={() => setBPage(p => p - 1)} disabled={bPage === 0} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: bPage === 0 ? 'default' : 'pointer', opacity: bPage === 0 ? 0.4 : 1 }}>‹</button>
+                    <button onClick={() => setBPage(0)} disabled={bPage === 0} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: bPage === 0 ? 'default' : 'pointer', opacity: bPage === 0 ? 0.4 : 1 }}>«</button>
+                    <button onClick={() => setBPage(p => p - 1)} disabled={bPage === 0} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: bPage === 0 ? 'default' : 'pointer', opacity: bPage === 0 ? 0.4 : 1 }}>‹</button>
                     <span style={{ padding: '3px 8px', fontFamily: T.mono, fontSize: 11, color: T.inkSoft }}>{bPage + 1}/{Math.ceil(filteredBRows.length / GRID_PAGE)}</span>
-                    <button onClick={() => setBPage(p => p + 1)} disabled={bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 'default' : 'pointer', opacity: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 0.4 : 1 }}>›</button>
-                    <button onClick={() => setBPage(Math.ceil(filteredBRows.length / GRID_PAGE) - 1)} disabled={bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 'default' : 'pointer', opacity: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 0.4 : 1 }}>»</button>
+                    <button onClick={() => setBPage(p => p + 1)} disabled={bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 'default' : 'pointer', opacity: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 0.4 : 1 }}>›</button>
+                    <button onClick={() => setBPage(Math.ceil(filteredBRows.length / GRID_PAGE) - 1)} disabled={bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1} style={{ padding: '3px 8px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 'default' : 'pointer', opacity: bPage >= Math.ceil(filteredBRows.length / GRID_PAGE) - 1 ? 0.4 : 1 }}>»</button>
                   </div>
                 </div>
               )}
@@ -5069,7 +5471,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
           )}
           {hasOverrides && resetArmed && (
             <Button variant="secondary" size="sm"
-              style={{ background: '#fef2f2', borderColor: T.rose, color: T.rose }}
+              style={{ background: T.errorBg, borderColor: T.rose, color: T.rose }}
               onClick={() => { pushEfHist(); setElectricityEfs({}); setResetArmed(false); }}>
               Confirm reset?
             </Button>
@@ -5081,12 +5483,12 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
       </div>
 
       {/* ── Info + keyboard hint ───────────────────────────────── */}
-      <div style={{ background: '#f0faf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+      <div style={{ background: T.successBg, border: '1px solid var(--ct-forestSoft)', borderRadius: 6, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <Info size={14} color={T.forest} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 1 }} />
         <span style={{ fontFamily: T.body, fontSize: 12, color: T.inkSoft, lineHeight: 1.6 }}>
           Values are editable. Click a cell, type to edit, or paste a block from Excel.
           Overridden values show in <strong style={{ color: '#7c3aed' }}>purple</strong>.
-          Select and press <kbd style={{ fontFamily: T.mono, fontSize: 11, background: '#e5e7eb', borderRadius: 3, padding: '1px 4px' }}>Delete</kbd> to reset to CRREM.
+          Select and press <kbd style={{ fontFamily: T.mono, fontSize: 11, background: T.paper, borderRadius: 3, padding: '1px 4px' }}>Delete</kbd> to reset to CRREM.
           <span style={{ marginLeft: 6, color: T.warmGrey }}>
             Ctrl+C copy · Ctrl+V paste · Arrows navigate · Shift+drag select · Ctrl+Z undo
           </span>
@@ -5100,7 +5502,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter countries…"
             style={{ paddingLeft: 28, paddingRight: search ? 28 : 10, paddingTop: 6, paddingBottom: 6,
               border: '1px solid ' + T.border, borderRadius: 6, fontFamily: T.body, fontSize: 13,
-              width: 180, background: '#fff', color: T.ink, outline: 'none' }} />
+              width: 180, background: T.surface, color: T.ink, outline: 'none' }} />
           {search && (
             <button onClick={() => setSearch('')} style={{ position:'absolute',right:6,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:T.warmGrey,padding:2,display:'flex' }}>
               <X size={12} />
@@ -5118,7 +5520,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
         <div ref={gridRef} tabIndex={0}
           onKeyDown={makeGridKeyDown('x')}
           onPaste={makePasteHandler('x')}
-          style={{ overflow: 'auto', maxHeight: '50vh', outline: 'none', background: '#fff' }}>
+          style={{ overflow: 'auto', maxHeight: '50vh', outline: 'none', background: T.surface }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: CTRY_W + years.length * COL_W }}>
             <colgroup>
               <col style={{ width: CTRY_W }} />
@@ -5153,7 +5555,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
                 </tr>
               ) : filtered.map((co, ri) => {
                 const isOverriddenRow = !!electricityEfs[co.code];
-                const rowBg = ri % 2 === 0 ? '#fff' : T.paper;
+                const rowBg = ri % 2 === 0 ? T.surface : T.paper;
                 return (
                   <tr key={co.code} style={{ borderBottom: '1px solid ' + T.borderSoft }}>
                     <td style={{
@@ -5183,7 +5585,7 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
                       const bgColor   = efColor(val);
                       // Selection: blend blue over the heat-map colour so both are readable
                       const cellBg = editing
-                        ? '#eff6ff'
+                        ? T.infoBg
                         : anch
                           ? `linear-gradient(rgba(29,78,216,0.22),rgba(29,78,216,0.22)),${bgColor}`
                           : sel
@@ -5457,7 +5859,7 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
           </div>
         </div>
 
-      <div style={{ background: '#fdf6ee', border: '1px solid ' + T.amberSoft, padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'flex-start', gap: 10, borderRadius: 6 }}>
+      <div style={{ background: T.warningBg, border: '1px solid ' + T.amberSoft, padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'flex-start', gap: 10, borderRadius: 6 }}>
         <Info size={16} color={T.amber} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ fontFamily: T.body, fontSize: 13, color: T.inkSoft, lineHeight: 1.5 }}>
           <strong>Natural gas default: 0.183 kgCO₂e/kWh</strong> (UK DEFRA, gross CV basis). Verify against the current year's publication for non-UK use.
@@ -5499,9 +5901,9 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                 const isFixed = mode === 'fixed';
                 const isDefault = !!DEFAULT_FUELS.find(d => d.code === fuel.code);
                 return (
-                  <tr key={fuel.code} style={{ borderBottom: '1px solid ' + T.borderSoft, background: '#fff' }}>
+                  <tr key={fuel.code} style={{ borderBottom: '1px solid ' + T.borderSoft, background: T.surface }}>
                     {/* Fuel name — sticky left */}
-                    <td style={{ padding: '0 14px', position: 'sticky', left: 0, background: '#fff', zIndex: T.z.stickyCell, minWidth: EF_FUEL_W, maxWidth: EF_FUEL_W, borderRight: '1px solid ' + T.border }}>
+                    <td style={{ padding: '0 14px', position: 'sticky', left: 0, background: T.surface, zIndex: T.z.stickyCell, minWidth: EF_FUEL_W, maxWidth: EF_FUEL_W, borderRight: '1px solid ' + T.border }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 36 }}>
                         <span style={{ fontFamily: T.body, fontSize: 13, color: T.ink, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fuel.name}</span>
                         {!isDefault && <span style={{ fontSize: 10, background: T.paper, color: T.warmGrey, padding: '1px 5px', borderRadius: 4, border: '1px solid ' + T.border, flexShrink: 0 }}>custom</span>}
@@ -5512,7 +5914,7 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                       <button
                         onClick={() => toggleMode(fuel)}
                         title={isFixed ? 'Click to switch to per-year time series mode' : 'Click to switch to fixed (same value every year)'}
-                        style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '0.05em', padding: '3px 8px', borderRadius: 20, border: '1px solid ' + (isFixed ? T.forest : '#7c3aed'), color: isFixed ? T.forest : '#7c3aed', background: isFixed ? '#f0fdf4' : '#f5f3ff', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '0.05em', padding: '3px 8px', borderRadius: 20, border: '1px solid ' + (isFixed ? T.forest : '#7c3aed'), color: isFixed ? T.forest : '#7c3aed', background: isFixed ? T.successBgLight : T.violetBg, cursor: 'pointer', whiteSpace: 'nowrap' }}
                       >
                         {isFixed ? 'Fixed' : 'Per year'}
                       </button>
@@ -5536,8 +5938,8 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                           style={{
                             padding: 0, textAlign: 'right',
                             borderRight: '1px solid ' + T.borderSoft,
-                            background: editing ? '#eff6ff' : sel ? '#dbeafe' : isMirror ? '#fafafa' : '#fff',
-                            outline: anch ? '2px solid #1d4ed8' : sel ? '1px solid #93c5fd' : 'none',
+                            background: editing ? T.infoBg : sel ? T.selBg : isMirror ? T.neutralBg : T.surface,
+                            outline: anch ? '2px solid #1d4ed8' : sel ? '1px solid var(--ct-selBorder)' : 'none',
                             outlineOffset: '-2px',
                             cursor: 'cell',
                             minWidth: EF_COL_W, userSelect: 'none',
@@ -6645,12 +7047,12 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
   return (
     <div style={{
       position: 'relative',
-      background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, marginBottom: 20,
+      background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, marginBottom: 20,
       ...(isFullscreen ? { position: 'fixed', inset: 0, zIndex: T.z.modal, borderRadius: 0, display: 'flex', flexDirection: 'column', marginBottom: 0 } : {}),
     }}>
       {/* Header */}
       <div style={{ position: 'relative', zIndex: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid ' + T.border, gap: 12, flexWrap: 'wrap', background: '#fff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid ' + T.border, gap: 12, flexWrap: 'wrap', background: T.surface }}>
         <div>
           <h2 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 3px' }}>Property map</h2>
           <p style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey, margin: 0 }}>
@@ -6725,7 +7127,7 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: 32, height: 32, border: '1px solid ' + T.border,
-              borderRadius: 6, background: '#fff', cursor: 'pointer', color: T.warmGrey, flexShrink: 0,
+              borderRadius: 6, background: T.surface, cursor: 'pointer', color: T.warmGrey, flexShrink: 0,
             }}
           >
             {isFullscreen
@@ -6739,7 +7141,7 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
 
       {/* Empty state — prompt to geocode */}
       {pinned === 0 && allPending > 0 && !geocoding && (
-        <div style={{ position: 'relative', zIndex: 10, background: T.successBgLight, borderBottom: '1px solid #86efac', padding: '10px 20px', fontFamily: T.body, fontSize: 12, color: T.inkSoft, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ position: 'relative', zIndex: 10, background: T.successBgLight, borderBottom: '1px solid var(--ct-forestSoft)', padding: '10px 20px', fontFamily: T.body, fontSize: 12, color: T.inkSoft, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} color={T.forest} strokeWidth={1.8} style={{ flexShrink: 0 }} />
           <span>
             <strong>{allPending} building{allPending !== 1 ? 's have' : ' has'} an address but no coordinates.</strong>
@@ -6748,7 +7150,7 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
         </div>
       )}
       {pinned === 0 && allPending === 0 && allNoAddr === buildings.length && buildings.length > 0 && (
-        <div style={{ position: 'relative', zIndex: 10, background: T.warningBg, borderBottom: '1px solid #fcd34d', padding: '10px 20px', fontFamily: T.body, fontSize: 12, color: T.inkSoft, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ position: 'relative', zIndex: 10, background: T.warningBg, borderBottom: '1px solid var(--ct-amberSoft)', padding: '10px 20px', fontFamily: T.body, fontSize: 12, color: T.inkSoft, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <Info size={14} color={T.amber} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: 2 }} />
           <span><strong>No buildings have addresses.</strong> Add an address to each building in the Portfolio tab to enable geocoding.</span>
         </div>
@@ -6790,27 +7192,27 @@ function BuildingMap({ buildings, buildingResults, firstDataYear, filteredBuildi
           {showDebug && (
             <div style={{ padding: '0 20px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {debugLog.map((log, i) => (
-                <div key={i} style={{ background: log.ok && !log.nullCount ? '#f0fdf4' : '#fef2f2', border: '1px solid ' + (log.ok && !log.nullCount ? '#86efac' : '#fca5a5'), borderRadius: 6, padding: 12 }}>
+                <div key={i} style={{ background: log.ok && !log.nullCount ? T.successBgLight : T.errorBg, border: '1px solid ' + (log.ok && !log.nullCount ? T.forestSoft : T.roseSoft), borderRadius: 6, padding: 12 }}>
                   <div style={{ fontFamily: T.mono, fontSize: 11, marginBottom: 6, color: T.ink, fontWeight: 600 }}>
                     Batch {log.batch} — {log.ok ? (log.nullCount ? `⚠ ${log.nullCount} null results` : '✓ OK') : `✗ Parse error: ${log.error}`}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     <div>
                       <div style={{ fontFamily: T.mono, fontSize: 10, color: T.warmGrey, marginBottom: 4 }}>INPUT</div>
-                      <pre style={{ fontFamily: T.mono, fontSize: 10, background: '#fff', border: '1px solid ' + T.border, borderRadius: 4, padding: 8, margin: 0, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflowY: 'auto', color: T.ink }}>
+                      <pre style={{ fontFamily: T.mono, fontSize: 10, background: T.surface, border: '1px solid ' + T.border, borderRadius: 4, padding: 8, margin: 0, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflowY: 'auto', color: T.ink }}>
                         {log.input}
                       </pre>
                     </div>
                     <div>
                       <div style={{ fontFamily: T.mono, fontSize: 10, color: T.warmGrey, marginBottom: 4 }}>RAW RESPONSE</div>
-                      <pre style={{ fontFamily: T.mono, fontSize: 10, background: '#fff', border: '1px solid ' + T.border, borderRadius: 4, padding: 8, margin: 0, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflowY: 'auto', color: T.ink }}>
+                      <pre style={{ fontFamily: T.mono, fontSize: 10, background: T.surface, border: '1px solid ' + T.border, borderRadius: 4, padding: 8, margin: 0, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 160, overflowY: 'auto', color: T.ink }}>
                         {log.raw || '(empty)'}
                       </pre>
                     </div>
                   </div>
                 </div>
               ))}
-              <button onClick={() => setDebugLog([])} style={{ alignSelf: 'flex-start', fontFamily: T.body, fontSize: 12, padding: '4px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: '#fff', cursor: 'pointer', color: T.warmGrey }}>
+              <button onClick={() => setDebugLog([])} style={{ alignSelf: 'flex-start', fontFamily: T.body, fontSize: 12, padding: '4px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: T.surface, cursor: 'pointer', color: T.warmGrey }}>
                 Clear log
               </button>
             </div>
@@ -6950,15 +7352,15 @@ function getPinStyle(building, res, metric, firstDataYear, billsByBuilding = {},
   const popupHtml = `
     <div style="font-family:sans-serif;font-size:12px;line-height:1.7;min-width:200px;max-width:280px">
       <strong style="display:block;font-size:13px;margin-bottom:4px;color:#111">${escapeHtml(building.name || building.id)}</strong>
-      ${building.address ? `<div style="color:#64748b;margin-bottom:6px;font-size:11px">${escapeHtml(building.address)}</div>` : ''}
+      ${building.address ? `<div style="color:var(--ct-warmGrey);margin-bottom:6px;font-size:11px">${escapeHtml(building.address)}</div>` : ''}
       <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <tr><td style="color:#64748b;padding:2px 8px 2px 0">Asset class</td><td style="font-weight:500;color:#1e293b">${escapeHtml(assetClassStr || '—')}</td></tr>
-        <tr><td style="color:#64748b;padding:2px 8px 2px 0">GIA</td><td style="font-weight:500;color:#1e293b">${escapeHtml(giaStr)}</td></tr>
-        <tr><td style="color:#64748b;padding:2px 8px 2px 0">Stranding</td><td style="font-weight:500;color:#1e293b">${escapeHtml(strandStr)}</td></tr>
-        ${ci != null ? `<tr><td style="color:#64748b;padding:2px 8px 2px 0">Carbon intensity${useRetro ? ' (retro)' : ''}</td><td style="font-weight:500;color:#1e293b">${ci.toFixed(2)} kgCO₂/m²</td></tr>` : ''}
-        ${ei != null ? `<tr><td style="color:#64748b;padding:2px 8px 2px 0">Energy intensity${useRetro ? ' (retro)' : ''}</td><td style="font-weight:500;color:#1e293b">${ei.toFixed(2)} kWh/m²</td></tr>` : ''}
-        ${pathway != null ? `<tr><td style="color:#64748b;padding:2px 8px 2px 0">CRREM pathway</td><td style="font-weight:500;color:#1e293b">${pathway.toFixed(2)} kgCO₂/m²</td></tr>` : ''}
-        ${totalKwh != null ? `<tr><td style="color:#64748b;padding:2px 8px 2px 0">Total energy</td><td style="font-weight:500;color:#1e293b">${totalKwh >= 1000000 ? (totalKwh / 1000000).toFixed(2) + ' GWh' : totalKwh >= 1000 ? (totalKwh / 1000).toFixed(1) + ' MWh' : Math.round(totalKwh) + ' kWh'}</td></tr>` : ''}
+        <tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">Asset class</td><td style="font-weight:500;color:var(--ct-ink)">${escapeHtml(assetClassStr || '—')}</td></tr>
+        <tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">GIA</td><td style="font-weight:500;color:var(--ct-ink)">${escapeHtml(giaStr)}</td></tr>
+        <tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">Stranding</td><td style="font-weight:500;color:var(--ct-ink)">${escapeHtml(strandStr)}</td></tr>
+        ${ci != null ? `<tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">Carbon intensity${useRetro ? ' (retro)' : ''}</td><td style="font-weight:500;color:var(--ct-ink)">${ci.toFixed(2)} kgCO₂/m²</td></tr>` : ''}
+        ${ei != null ? `<tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">Energy intensity${useRetro ? ' (retro)' : ''}</td><td style="font-weight:500;color:var(--ct-ink)">${ei.toFixed(2)} kWh/m²</td></tr>` : ''}
+        ${pathway != null ? `<tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">CRREM pathway</td><td style="font-weight:500;color:var(--ct-ink)">${pathway.toFixed(2)} kgCO₂/m²</td></tr>` : ''}
+        ${totalKwh != null ? `<tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">Total energy</td><td style="font-weight:500;color:var(--ct-ink)">${totalKwh >= 1000000 ? (totalKwh / 1000000).toFixed(2) + ' GWh' : totalKwh >= 1000 ? (totalKwh / 1000).toFixed(1) + ' MWh' : Math.round(totalKwh) + ' kWh'}</td></tr>` : ''}
         ${(() => {
           const bd = billsByBuilding[building.id];
           if (!bd || !bd.total) return '';
@@ -6972,13 +7374,13 @@ function getPinStyle(building, res, metric, firstDataYear, billsByBuilding = {},
           const fmt = converted >= 1e6 ? sym + (converted / 1e6).toFixed(2) + 'm'
                     : converted >= 1e3 ? sym + (converted / 1e3).toFixed(1) + 'k'
                     : sym + Math.round(converted);
-          return '<tr><td style="color:#64748b;padding:2px 8px 2px 0">Annual bills</td><td style="font-weight:500;color:#1e293b">' + fmt + (bd.inferred ? ' <span style=\"font-size:10px;color:#92400e\">(est.)</span>' : '') + '</td></tr>';
+          return '<tr><td style="color:var(--ct-warmGrey);padding:2px 8px 2px 0">Annual bills</td><td style="font-weight:500;color:var(--ct-ink)">' + fmt + (bd.inferred ? ' <span style=\"font-size:10px;color:var(--ct-amberText)\">(est.)</span>' : '') + '</td></tr>';
         })()}
       </table>
       <div style="margin-top:10px;display:flex;align-items:center;justify-content:flex-end">
         <button
           onclick="if(window.__mapFocusBuilding){window.__mapFocusBuilding('${escapeHtml(building.id)}');}"
-          style="font-size:11px;font-family:sans-serif;padding:4px 12px;border-radius:4px;border:1px solid #16a34a;background:#f0fdf4;color:#15803d;cursor:pointer;font-weight:600;white-space:nowrap"
+          style="font-size:11px;font-family:sans-serif;padding:4px 12px;border-radius:4px;border:1px solid var(--ct-forest);background:var(--ct-successBgLight);color:var(--ct-successText);cursor:pointer;font-weight:600;white-space:nowrap"
         >Focus dashboard ↗</button>
       </div>
     </div>`;
@@ -7076,8 +7478,8 @@ function StackToggleModule({ active, onToggle, label }) {
   return (
     <button onClick={onToggle} style={{
       display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
-      border: '1px solid ' + (active ? T.slate : T.border),
-      background: active ? T.slate : '#fff', borderRadius: 6,
+      border: '1px solid ' + (active ? T.btnBg : T.border),
+      background: active ? T.btnBg : T.surface, borderRadius: 6,
       cursor: 'pointer', fontFamily: T.mono, fontSize: 10, letterSpacing: '0.08em',
       color: active ? '#fff' : T.warmGrey, textTransform: 'uppercase', flexShrink: 0,
       transition: 'all 0.15s',
@@ -7097,7 +7499,7 @@ function ChartCard({ title, subtitle, legend, children, panelId }) {
       onDrop={panelId && onChartDrop ? () => onChartDrop(panelId) : undefined}
       onDragEnd={onClearDrag}
       style={{
-        background: '#fff',
+        background: T.surface,
         border: '1px solid ' + T.border,
         borderTop: '3px solid ' + T.forest,
         borderRadius: 8, padding: '20px 24px',
@@ -7499,7 +7901,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
     if (!node) return;
     const isSrc = dragSrcRef.current === id;
     const isTgt = dragOverRef.current === id && dragSrcRef.current !== id;
-    node.style.background = isTgt ? '#f0faf4' : isSrc ? '#fefce8' : '#fff';
+    node.style.background = isTgt ? T.successBg : isSrc ? T.warningBg : T.surface;
     node.style.borderColor = isTgt ? T.forest : isSrc ? T.amber : T.border;
     node.style.opacity = isSrc ? '0.6' : '1';
   };
@@ -7807,7 +8209,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
   const uniqueAssetClasses = [...new Set(buildings.flatMap(b => (b.assetClasses || []).map(ac => ac.code)).filter(Boolean))];
 
   // Shared tooltip style
-  const ttStyle = { background: '#fff', border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12 };
+  const ttStyle = { background: T.surface, border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12, color: T.ink };
 
   const StackToggle = StackToggleModule;
 
@@ -7827,7 +8229,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
         title="Dashboard"
         description="Carbon and energy intensity vs. CRREM 1.5°C pathways. Set the base period to match your energy data."
         actions={isComputing
-          ? <span style={{fontFamily:T.mono,fontSize:11,color:T.amber,padding:'6px 12px',background: T.warningBg,border:'1px solid #fcd34d',borderRadius:6}}>Computing {buildings.length} buildings…</span>
+          ? <span style={{fontFamily:T.mono,fontSize:11,color:T.amber,padding:'6px 12px',background: T.warningBg,border:'1px solid var(--ct-amberSoft)',borderRadius:6}}>Computing {buildings.length} buildings…</span>
           : null}
       />
 
@@ -7890,7 +8292,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
           style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
             border: '1px solid ' + (composeOpen ? T.forest : T.border),
-            borderRadius: 6, background: composeOpen ? '#f0faf4' : '#fff',
+            borderRadius: 6, background: composeOpen ? T.successBg : T.surface,
             cursor: 'pointer', fontFamily: T.body, fontSize: 12, fontWeight: 500,
             color: composeOpen ? T.forest : T.warmGrey, marginBottom: 6, transition: 'all 0.15s',
           }}
@@ -7914,9 +8316,9 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
   undoPanelsRef.current = cur;
   updateView(activeViewIdx, v => ({ panels: (v.panels || PANEL_REGISTRY.map(p => ({ id: p.id, visible: p.defaultVisible, span: p.defaultSpan }))).map(p => ({ ...p, visible: false })) }));
   push?.('All panels hidden', 'warning', { label: 'Undo', onClick: () => updateView(activeViewIdx, () => ({ panels: undoPanelsRef.current })) });
-}} style={{ fontFamily: T.body, fontSize: 12, padding: '5px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: '#fff', cursor: 'pointer', color: T.inkSoft }}>Hide all</button>
-              <button onClick={() => duplicateView(activeViewIdx)} style={{ fontFamily: T.body, fontSize: 12, padding: '5px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: '#fff', cursor: 'pointer', color: T.inkSoft }}>Duplicate view</button>
-              <button onClick={() => setConfirmResetView(true)} style={{ fontFamily: T.body, fontSize: 12, padding: '5px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: '#fff', cursor: 'pointer', color: T.inkSoft }}>Reset to default</button>
+}} style={{ fontFamily: T.body, fontSize: 12, padding: '5px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: T.surface, cursor: 'pointer', color: T.inkSoft }}>Hide all</button>
+              <button onClick={() => duplicateView(activeViewIdx)} style={{ fontFamily: T.body, fontSize: 12, padding: '5px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: T.surface, cursor: 'pointer', color: T.inkSoft }}>Duplicate view</button>
+              <button onClick={() => setConfirmResetView(true)} style={{ fontFamily: T.body, fontSize: 12, padding: '5px 12px', border: '1px solid ' + T.border, borderRadius: 6, background: T.surface, cursor: 'pointer', color: T.inkSoft }}>Reset to default</button>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -7936,7 +8338,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 14px', borderRadius: 8,
-                    background: '#fff',
+                    background: T.surface,
                     border: '1px solid ' + T.border,
                     cursor: 'grab', opacity: 1,
                   }}
@@ -7961,7 +8363,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                   >
                     <span style={{
                       position: 'absolute', top: 2, left: cfg.visible ? 18 : 2,
-                      width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                      width: 16, height: 16, borderRadius: '50%', background: T.surface,
                       transition: 'left 0.2s', display: 'block',
                     }} />
                   </button>
@@ -7982,7 +8384,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                             fontFamily: T.mono, fontSize: 11, padding: '3px 10px',
                             border: '1px solid ' + (cfg.span === span ? T.forest : T.border),
                             borderRadius: 6,
-                            background: cfg.span === span ? '#f0faf4' : '#fff',
+                            background: cfg.span === span ? T.successBg : T.surface,
                             color: cfg.span === span ? T.forest : T.warmGrey,
                             cursor: cfg.visible ? 'pointer' : 'default',
                             opacity: cfg.visible ? 1 : 0.4,
@@ -8008,7 +8410,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
       />
 
       {/* Settings bar */}
-      <div data-filter-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#fff', border: '1px solid ' + T.border, borderBottom: '2px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 28, position: 'sticky', top: 48, zIndex: T.z.filterBar, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+      <div data-filter-bar style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: T.surface, border: '1px solid ' + T.border, borderBottom: '2px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 28, position: 'sticky', top: 48, zIndex: T.z.filterBar, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontFamily: T.body, fontSize: 13, fontWeight: 500, color: T.warmGrey, whiteSpace: 'nowrap' }}>Base period</span>
           <TooltipIcon text="Start month and year of the 12-month window used to roll up energy consumption into annual figures. All carbon and energy intensity calculations are based on this window. Buildings need complete data for all 12 months to be included." />
@@ -8062,7 +8464,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                 padding: '6px 12px',
                 border: '1px solid ' + (dirty ? T.border : T.borderSoft),
                 borderRadius: 6,
-                background: dirty ? '#fff' : T.paper,
+                background: dirty ? T.surface : T.paper,
                 cursor: dirty ? 'pointer' : 'default',
                 fontFamily: T.body, fontSize: 12, fontWeight: 500,
                 color: dirty ? T.inkSoft : T.warmGreyLight,
@@ -8083,7 +8485,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
             <button onClick={() => setShowRetrofit(v => !v)} style={{
               display: 'flex', alignItems: 'center', gap: 7, padding: '6px 14px',
               border: '1px solid ' + (showRetrofit ? T.forest : T.border),
-              background: showRetrofit ? '#f0faf4' : '#fff', borderRadius: 6,
+              background: showRetrofit ? T.successBg : T.surface, borderRadius: 6,
               cursor: 'pointer', fontFamily: T.body, fontSize: 12, fontWeight: 500,
               color: showRetrofit ? T.forest : T.warmGrey, transition: 'all 0.15s', whiteSpace: 'nowrap',
             }}>
@@ -8096,47 +8498,21 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
           <Button variant="secondary" icon={Download} size="sm"
             disabled={filteredBuildings.length === 0 || isComputing}
             onClick={() => {
-              const rows = filteredBuildings
-                .filter(b => buildingResults[b.id]?.hasEnergy)
-                .map(b => {
-                  const res = buildingResults[b.id];
-                  const gia = parseFloat(b.gia) || 1;
-                  const totalNormKwh = res.normByFuel ? Object.values(res.normByFuel).reduce((s, v) => s + v, 0) : 0;
-                  // Post-retrofit stranding year — first year where retro CI exceeds pathway
-                  let strandingYearRetro = '';
-                  if (res.ci_t_retro && res.pathway_t) {
-                    const years2050 = Array.from({ length: 31 }, (_, i) => 2020 + i);
-                    for (const yr of years2050) {
-                      if (res.ci_t_retro[yr] != null && res.pathway_t[yr] != null && res.ci_t_retro[yr] > res.pathway_t[yr]) {
-                        strandingYearRetro = yr; break;
-                      }
-                    }
-                  }
-                  const hasRetroData = showRetrofit && portfolioHasRetrofits && res.hasRetrofits;
-                  const row = {
-                    building_id:                  b.id,
-                    building_name:                b.name,
-                    country:                      b.country,
-                    asset_classes:                (b.assetClasses || []).map(ac => ac.code).join(', '),
-                    epc_rating:                   b.epc || '',
-                    gia_m2:                       b.gia,
-                    reference_year:               refYear,
-                    energy_intensity_kwh_m2:      res.energyIntensity != null ? +res.energyIntensity.toFixed(3) : '',
-                    total_norm_energy_kwh:        +totalNormKwh.toFixed(1),
-                    carbon_intensity_kgco2e_m2:   res.baseCI != null ? +res.baseCI.toFixed(4) : '',
-                    total_carbon_tco2e:           res.c_t?.[refYear] != null ? +res.c_t[refYear].toFixed(3) : '',
-                    crrem_pathway_kgco2e_m2:      res.basePathway != null ? +res.basePathway.toFixed(4) : '',
-                    exceedance_pct:               res.exceedancePct != null ? +res.exceedancePct.toFixed(2) : '',
-                    stranding_year_bau:           res.strandingYear ?? '',
-                  };
-                  if (hasRetroData) {
-                    const retroCI = res.ci_t_retro?.[refYear];
-                    row.carbon_intensity_retro_kgco2e_m2 = retroCI != null ? +retroCI.toFixed(4) : '';
-                    row.stranding_year_post_retrofit      = strandingYearRetro;
-                  }
-                  return row;
-                });
-              directDownload('crrem_results_' + refYear + '.csv', rows);
+              buildDashboardResultsWorkbook({
+                buildings: filteredBuildings,
+                buildingResults,
+                fuels,
+                efs,
+                bills,
+                reportingCurrency,
+                exchangeRates,
+                firstDataYear,
+                refYear,
+                hasRetrofits: portfolioHasRetrofits,
+                baseYear: dBaseYear,
+                baseMonth: dBaseMonth,
+                sampleMode: buildings?.[0]?.id === 'xaji0y6d',
+              }).catch(err => { console.error(err); push?.('Could not build the results workbook.', 'error'); });
             }}
           >
             Download results
@@ -8710,7 +9086,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                 return (
                   <select value={val} onChange={e => { e.stopPropagation(); handleTableFilter(col, e.target.value); }}
                     onClick={e => e.stopPropagation()}
-                    style={{ width: '100%', padding: '3px 4px', fontFamily: T.body, fontSize: 11, border: '1px solid ' + (val ? T.slate : T.border), borderRadius: 4, outline: 'none', color: T.ink, background: '#fff', marginTop: 4, boxSizing: 'border-box' }}>
+                    style={{ width: '100%', padding: '3px 4px', fontFamily: T.body, fontSize: 11, border: '1px solid ' + (val ? T.slate : T.border), borderRadius: 4, outline: 'none', color: T.ink, background: T.surface, marginTop: 4, boxSizing: 'border-box' }}>
                     <option value="">All</option>
                     {opts.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
@@ -8720,7 +9096,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
             };
 
             return (
-              <div style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, overflow: 'auto' }}>
+              <div style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, overflow: 'auto' }}>
                 <div style={{ padding: '14px 20px', borderBottom: '1px solid ' + T.border, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <h2 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 2px' }}>Building breakdown</h2>
@@ -8788,7 +9164,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                             }
                           }}
                           style={{ borderBottom: '1px solid ' + T.borderSoft, cursor: 'pointer',
-                            background: focusedBuildingId === b.id ? '#f0faf4' : isStranded ? '#fff8f8' : 'transparent',
+                            background: focusedBuildingId === b.id ? T.successBg : isStranded ? T.errorBg : 'transparent',
                             outline: focusedBuildingId === b.id ? '2px solid ' + T.forestSoft : 'none',
                             outlineOffset: -2,
                           }}>
@@ -8796,7 +9172,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               {b.name}
                               {focusedBuildingId === b.id && (
-                                <span style={{ fontFamily: T.mono, fontSize: 9, background: '#dcfce7', color: T.forest, padding: '2px 6px', borderRadius: 10, border: '1px solid ' + T.forestSoft }}>focused</span>
+                                <span style={{ fontFamily: T.mono, fontSize: 9, background: T.successBg, color: T.forest, padding: '2px 6px', borderRadius: 10, border: '1px solid ' + T.forestSoft }}>focused</span>
                               )}
                               {missingUserBillsBids_t.has(b.id) && (
                                 <span title="Utility costs inferred from reference tariffs" style={{ fontFamily: T.mono, fontSize: 9, background: T.amberBg, color: T.amberText, padding: '2px 6px', borderRadius: 10, border: '1px solid ' + T.amberSoft, cursor: 'help' }}>est. costs</span>
@@ -8823,8 +9199,8 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{pw != null ? pw.toFixed(1) : '—'}</td>
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{dispBC != null ? dispBC.toFixed(1) : '—'}</td>
                           <td style={{ padding: '12px 14px' }}>
-                            {isStranded && <span style={{ background: '#fee2e2', color: T.rose, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid #fca5a5' }}>Stranded</span>}
-                            {isOnTrack  && <span style={{ background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid #86efac' }}>On track</span>}
+                            {isStranded && <span style={{ background: T.errorBg, color: T.rose, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid var(--ct-roseSoft)' }}>Stranded</span>}
+                            {isOnTrack  && <span style={{ background: T.successBg, color: T.successText, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid var(--ct-forestSoft)' }}>On track</span>}
                             {!isStranded && !isOnTrack && <span style={{ color: T.warmGreyLight, fontSize: 11 }}>—</span>}
                           </td>
                           <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: dispBStrand ? T.rose : T.warmGreyLight }}>{dispBStrand ?? '—'}</td>
@@ -8851,16 +9227,16 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                       </span>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button onClick={() => setTablePage(0)} disabled={tablePage === 0}
-                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: tablePage === 0 ? 'default' : 'pointer', opacity: tablePage === 0 ? 0.4 : 1 }}>«</button>
+                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: tablePage === 0 ? 'default' : 'pointer', opacity: tablePage === 0 ? 0.4 : 1 }}>«</button>
                         <button onClick={() => setTablePage(p => p - 1)} disabled={tablePage === 0}
-                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: tablePage === 0 ? 'default' : 'pointer', opacity: tablePage === 0 ? 0.4 : 1 }}>‹ Prev</button>
+                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: tablePage === 0 ? 'default' : 'pointer', opacity: tablePage === 0 ? 0.4 : 1 }}>‹ Prev</button>
                         <span style={{ padding: '4px 10px', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>
                           {tablePage + 1} / {totalPages}
                         </span>
                         <button onClick={() => setTablePage(p => p + 1)} disabled={tablePage >= totalPages - 1}
-                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: tablePage >= totalPages - 1 ? 'default' : 'pointer', opacity: tablePage >= totalPages - 1 ? 0.4 : 1 }}>Next ›</button>
+                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: tablePage >= totalPages - 1 ? 'default' : 'pointer', opacity: tablePage >= totalPages - 1 ? 0.4 : 1 }}>Next ›</button>
                         <button onClick={() => setTablePage(totalPages - 1)} disabled={tablePage >= totalPages - 1}
-                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: '#fff', cursor: tablePage >= totalPages - 1 ? 'default' : 'pointer', opacity: tablePage >= totalPages - 1 ? 0.4 : 1 }}>»</button>
+                          style={{ padding: '4px 10px', fontFamily: T.body, fontSize: 12, border: '1px solid ' + T.border, borderRadius: 4, background: T.surface, cursor: tablePage >= totalPages - 1 ? 'default' : 'pointer', opacity: tablePage >= totalPages - 1 ? 0.4 : 1 }}>»</button>
                       </div>
                     </div>
                   );
@@ -8925,7 +9301,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                 borderBottom: '1px solid ' + T.borderSoft,
                 cursor: isDisabled ? 'default' : 'pointer',
                 opacity: isDisabled ? 0.4 : 1,
-                background: isChecked ? '#f0fdf4' : '#fff',
+                background: isChecked ? T.successBgLight : T.surface,
               }}>
                 <input type="checkbox" checked={isChecked} disabled={isDisabled} onChange={e => {
                   if (isDisabled) return;
@@ -9109,7 +9485,7 @@ function AssignRetrofitModal({ building, retrofits, existingAssignments, onSave,
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.warmGrey }}>Implementation year *</label>
             <select value={year} onChange={e => setYear(parseInt(e.target.value))}
-              style={{ padding: '10px 12px', border: '1px solid ' + T.border, fontFamily: T.body, fontSize: 14, color: T.ink, background: '#fff', borderRadius: '6px', outline: 'none' }}>
+              style={{ padding: '10px 12px', border: '1px solid ' + T.border, fontFamily: T.body, fontSize: 14, color: T.ink, background: T.surface, borderRadius: '6px', outline: 'none' }}>
               {yearOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
@@ -9119,7 +9495,7 @@ function AssignRetrofitModal({ building, retrofits, existingAssignments, onSave,
                 Available roof area for new panels (m²) *
               </label>
               <input type="number" min="1" step="1" value={solarRoofM2} onChange={e => setSolarRoofM2(e.target.value)} placeholder="e.g. 250"
-                style={{ padding: '10px 12px', border: '1px solid ' + T.border, fontFamily: T.body, fontSize: 14, color: T.ink, background: '#fff', borderRadius: 6, outline: 'none' }} />
+                style={{ padding: '10px 12px', border: '1px solid ' + T.border, fontFamily: T.body, fontSize: 14, color: T.ink, background: T.surface, borderRadius: 6, outline: 'none' }} />
               <div style={{ fontFamily: T.body, fontSize: 11, color: T.warmGrey, lineHeight: 1.4 }}>
                 Roof area available for new panels — excluding existing panels, plant, access zones.
                 {building.gia > 0 && solarRoofM2 > 0 && !isNaN(parseFloat(solarRoofM2)) && (() => {
@@ -9129,9 +9505,9 @@ function AssignRetrofitModal({ building, retrofits, existingAssignments, onSave,
                 })()}
               </div>
               {usingDefault && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 6, marginTop: 2 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', background: T.warningBg, border: '1px solid var(--ct-amberSoft)', borderRadius: 6, marginTop: 2 }}>
                   <AlertTriangle size={13} color="#d97706" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <div style={{ fontFamily: T.body, fontSize: 11, color: '#92400e', lineHeight: 1.4 }}>
+                  <div style={{ fontFamily: T.body, fontSize: 11, color: T.amberText, lineHeight: 1.4 }}>
                     No roof area recorded for this building. Using estimated default of <strong>{defaultRoof?.toLocaleString()} m²</strong> ({Math.round((defaultRoof / building.gia) * 100)}% of GIA). Set a precise value in the Portfolio tab for accurate results.
                   </div>
                 </div>
@@ -9139,9 +9515,9 @@ function AssignRetrofitModal({ building, retrofits, existingAssignments, onSave,
             </div>
           )}
           {incompatWarning && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 6 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', background: T.warningBg, border: '1px solid var(--ct-amberSoft)', borderRadius: 6 }}>
               <AlertTriangle size={14} color="#d97706" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-              <div style={{ fontFamily: T.body, fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>
+              <div style={{ fontFamily: T.body, fontSize: 12, color: T.amberText, lineHeight: 1.5 }}>
                 <strong>Note:</strong> {incompatWarning}. You can still assign if additional roof area is available.
               </div>
             </div>
@@ -9224,7 +9600,7 @@ function BulkAssignModal({ measure, buildings, assignments, onSave, onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontFamily: T.body, fontSize: 13, color: T.warmGrey, whiteSpace: 'nowrap' }}>Implementation year</span>
           <select value={year} onChange={e => setYear(Number(e.target.value))}
-            style={{ fontFamily: T.body, fontSize: 13, border: '1px solid ' + T.border, borderRadius: 6, padding: '6px 10px', background: '#fff', color: T.ink, cursor: 'pointer' }}>
+            style={{ fontFamily: T.body, fontSize: 13, border: '1px solid ' + T.border, borderRadius: 6, padding: '6px 10px', background: T.surface, color: T.ink, cursor: 'pointer' }}>
             {yearOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
@@ -9236,24 +9612,24 @@ function BulkAssignModal({ measure, buildings, assignments, onSave, onClose }) {
               Override roof area per building (m²) — optional
             </label>
             <input type="number" min="1" step="1" value={solarRoofM2} onChange={e => setSolarRoofM2(e.target.value)} placeholder="Leave blank to use per-building values"
-              style={{ padding: '8px 12px', border: '1px solid ' + T.border, fontFamily: T.body, fontSize: 13, color: T.ink, background: '#fff', borderRadius: 6, outline: 'none', width: 260 }} />
+              style={{ padding: '8px 12px', border: '1px solid ' + T.border, fontFamily: T.body, fontSize: 13, color: T.ink, background: T.surface, borderRadius: 6, outline: 'none', width: 260 }} />
             <div style={{ fontFamily: T.body, fontSize: 11, color: T.warmGrey, lineHeight: 1.4 }}>
               {overrideM2 != null
                 ? 'This value will override the roof area for all selected buildings.'
                 : 'If blank, each building uses the roof area set in Portfolio, or a default estimate based on GIA and asset class.'}
             </div>
             {buildingsUsingDefault.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 6, marginTop: 2 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', background: T.warningBg, border: '1px solid var(--ct-amberSoft)', borderRadius: 6, marginTop: 2 }}>
                 <AlertTriangle size={13} color="#d97706" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontFamily: T.body, fontSize: 11, color: '#92400e', lineHeight: 1.4 }}>
+                <div style={{ fontFamily: T.body, fontSize: 11, color: T.amberText, lineHeight: 1.4 }}>
                   {buildingsUsingDefault.length} selected building{buildingsUsingDefault.length !== 1 ? 's have' : ' has'} no roof area recorded — default estimates will be used. Set precise values in the Portfolio tab for accurate results.
                 </div>
               </div>
             )}
             {buildingsWithNoRoof.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', background: '#fef2f2', border: '1px solid #f87171', borderRadius: 6, marginTop: 2 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', background: T.errorBg, border: '1px solid #f87171', borderRadius: 6, marginTop: 2 }}>
                 <AlertTriangle size={13} color="#dc2626" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontFamily: T.body, fontSize: 11, color: '#7f1d1d', lineHeight: 1.4 }}>
+                <div style={{ fontFamily: T.body, fontSize: 11, color: T.errorText, lineHeight: 1.4 }}>
                   {buildingsWithNoRoof.length} selected building{buildingsWithNoRoof.length !== 1 ? 's have' : ' has'} no GIA or asset class set — solar PV cannot be modelled without a roof area value above.
                 </div>
               </div>
@@ -9299,7 +9675,7 @@ function BulkAssignModal({ measure, buildings, assignments, onSave, onClose }) {
                 display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
                 borderBottom: '1px solid ' + T.borderSoft,
                 cursor: 'pointer',
-                background: isChecked ? (warning ? '#fffbeb' : '#f0fdf4') : '#fff',
+                background: isChecked ? (warning ? T.warningBg : T.successBgLight) : T.surface,
               }}>
                 <input type="checkbox" checked={isChecked} onChange={() => toggle(b.id)}
                   style={{ marginTop: 2, flexShrink: 0, accentColor: T.forest, width: 14, height: 14 }} />
@@ -9311,7 +9687,7 @@ function BulkAssignModal({ measure, buildings, assignments, onSave, onClose }) {
                   {warning && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
                       <AlertTriangle size={11} color="#d97706" strokeWidth={2} />
-                      <span style={{ fontFamily: T.body, fontSize: 11, color: '#92400e' }}>{warning}</span>
+                      <span style={{ fontFamily: T.body, fontSize: 11, color: T.amberText }}>{warning}</span>
                     </div>
                   )}
                 </div>
@@ -9335,9 +9711,9 @@ function BulkAssignModal({ measure, buildings, assignments, onSave, onClose }) {
 
         {/* Incompatibility summary */}
         {warningBuildings.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 6 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', background: T.warningBg, border: '1px solid var(--ct-amberSoft)', borderRadius: 6 }}>
             <AlertTriangle size={14} color="#d97706" strokeWidth={2} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ fontFamily: T.body, fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>
+            <div style={{ fontFamily: T.body, fontSize: 12, color: T.amberText, lineHeight: 1.5 }}>
               <strong>May already be in place</strong> for {warningBuildings.length === 1 ? warningBuildings[0] : warningBuildings.length + ' selected buildings'}. You can still assign if coverage is partial or data needs updating.
             </div>
           </div>
@@ -9492,7 +9868,7 @@ Default values: Natural gas 0.183, Oil 0.245, District heating 0.07, District co
 - **Reference Year** — selects the future year shown in KPI tiles, the sortable building breakdown table below the charts, the Emissions by building and Energy by building charts, and the map. Defaults to the base year; move it forward to see projected carbon intensity as the grid decarbonises
 - **Filter** — lets you focus on a subset of the portfolio: select groups of buildings by country or asset class using the multi-select dropdowns, or hand-pick individual buildings using the building selector. Filters are shared with the Retrofits tab, so any selection made here also applies there
 - **BAU / Post-retrofit toggle** — only visible when retrofits are assigned; switches all charts, KPIs, and the map to post-retrofit numbers
-- **Download results** — exports a CSV of the current filtered view
+- **Download results** — exports a styled, multi-tab Excel workbook for the current filtered view: stranding summary (carbon + energy, before and after retrofits), plus per-building/per-fuel emissions, emission intensity, energy, energy intensity and bills across every year (BAU and post-retrofit on separate tabs), and the CRREM carbon and energy pathways
 
 ### KPI cards
 
@@ -9884,7 +10260,7 @@ function renderMarkdown(text) {
             </thead>
             <tbody>
               {body.map((row, ri) => (
-                <tr key={ri} style={{ borderBottom: '1px solid ' + T.borderSoft, background: ri % 2 === 0 ? '#fff' : T.paper }}>
+                <tr key={ri} style={{ borderBottom: '1px solid ' + T.borderSoft, background: ri % 2 === 0 ? T.surface : T.paper }}>
                   {parseRow(row).map((cell, ci) => (
                     <td key={ci} style={{ padding: '6px 12px', color: T.inkSoft, verticalAlign: 'top' }}>{inlineRender(cell)}</td>
                   ))}
@@ -10058,7 +10434,7 @@ function GuideTabInner({ activeSection, onSectionChange }) {
           <div key={key()} style={{ overflowX: 'auto', margin: '14px 0' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: T.body, fontSize: 13 }}>
               <thead><tr style={{ background: T.paper }}>{header.map((h, ci) => <th key={ci} style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600, color: T.ink, borderBottom: '2px solid ' + T.border, whiteSpace: 'nowrap' }}>{inlineRender(h)}</th>)}</tr></thead>
-              <tbody>{body.map((row, ri) => <tr key={ri} style={{ borderBottom: '1px solid ' + T.borderSoft, background: ri % 2 === 0 ? '#fff' : T.paper }}>{parseRow(row).map((cell, ci) => <td key={ci} style={{ padding: '6px 12px', color: T.inkSoft, verticalAlign: 'top' }}>{inlineRender(cell)}</td>)}</tr>)}</tbody>
+              <tbody>{body.map((row, ri) => <tr key={ri} style={{ borderBottom: '1px solid ' + T.borderSoft, background: ri % 2 === 0 ? T.surface : T.paper }}>{parseRow(row).map((cell, ci) => <td key={ci} style={{ padding: '6px 12px', color: T.inkSoft, verticalAlign: 'top' }}>{inlineRender(cell)}</td>)}</tr>)}</tbody>
             </table>
           </div>
         );
@@ -10126,7 +10502,7 @@ function GuideTabInner({ activeSection, onSectionChange }) {
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 56px)', background: T.cream, overflow: 'hidden' }}>
       {/* Left sidebar — section switcher + TOC */}
-      <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid ' + T.border, background: '#fff', height: '100%', overflowY: 'auto', padding: '24px 0' }}>
+      <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid ' + T.border, background: T.surface, height: '100%', overflowY: 'auto', padding: '24px 0' }}>
         <div style={{ padding: '0 16px 16px', borderBottom: '1px solid ' + T.borderSoft, marginBottom: 16 }}>
           {GUIDE_SECTIONS.map(s => {
             const Icon = s.icon;
@@ -10320,7 +10696,7 @@ function RetrofitDataButtons({ retrofits, setRetrofits, assignments, setAssignme
           Import <ChevronRight size={12} style={{ transform: menuOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', marginLeft: 2 }} />
         </Button>
         {menuOpen && (
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, boxShadow: SHADOW_MD, zIndex: T.z.dropdown, minWidth: 220, overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, boxShadow: SHADOW_MD, zIndex: T.z.dropdown, minWidth: 220, overflow: 'hidden' }}>
             <div style={{ padding: '6px 0' }}>
               <button onClick={() => { importMeasuresRef.current?.click(); setMenuOpen(false); }}
                 style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%', padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left' }}>
@@ -10367,7 +10743,7 @@ function ExportRetrofitMenu({ retrofits, assignments, onExportMeasures, onExport
         Export <ChevronRight size={12} style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', marginLeft: 2 }} />
       </Button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, boxShadow: SHADOW_MD, zIndex: T.z.dropdown, minWidth: 220, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, boxShadow: SHADOW_MD, zIndex: T.z.dropdown, minWidth: 220, overflow: 'hidden' }}>
           <div style={{ padding: '6px 0' }}>
             {retrofits.length > 0 && (
               <button onClick={() => { onExportMeasures(); setOpen(false); }}
@@ -10409,7 +10785,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
   const allMeasures = [...BUILT_IN_MEASURES, ...retrofits];
   const CATEGORY_LABELS = { envelope: 'Envelope', mechanical: 'Mechanical', electrical: 'Electrical', generation: 'Generation', controls: 'Controls' };
   const CATEGORY_COLORS = { envelope: '#d97706', mechanical: '#2563eb', electrical: '#7c3aed', generation: '#16a34a', controls: '#0891b2' };
-  const CATEGORY_BG    = { envelope: '#fef3c7', mechanical: '#dbeafe', electrical: '#ede9fe', generation: '#dcfce7', controls: '#cffafe' };
+  const CATEGORY_BG    = { envelope: T.amberBg, mechanical: T.selBg, electrical: T.violetBg, generation: T.successBg, controls: T.infoBg };
 
   // ── Impact panel computation ────────────────────────────────────────────
   const dBaseYear  = useDebounce(baseYear,  400);
@@ -10451,7 +10827,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
   const hasAnyAssignments = assignments.length > 0;
   const hasRetrofits = portfolio?.ci_t_retro && Object.values(portfolio.ci_t_retro).some(v => v != null);
 
-  const ttStyle = { background: '#fff', border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12 };
+  const ttStyle = { background: T.surface, border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12, color: T.ink };
 
   const ciChartData = useMemo(() => {
     if (!portfolio) return [];
@@ -10540,7 +10916,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
   );
 
   const SimpleChartCard = ({ title, subtitle, legend, children }) => (
-    <div style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, padding: '20px 24px' }}>
+    <div style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, padding: '20px 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <h3 style={{ fontFamily: T.body, fontSize: 15, fontWeight: 600, color: T.ink, margin: '0 0 3px' }}>{title}</h3>
@@ -10624,7 +11000,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
       </TabInfoAccordion>
 
       {/* Filter bar — sticky, mirrors Dashboard filter bar order: countries, asset classes, select buildings */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#fff', border: '1px solid ' + T.border, borderBottom: '2px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 24, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', position: 'sticky', top: 48, zIndex: T.z.filterBar }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: T.surface, border: '1px solid ' + T.border, borderBottom: '2px solid ' + T.border, borderRadius: 8, padding: '10px 14px', marginBottom: 24, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', position: 'sticky', top: 48, zIndex: T.z.filterBar }}>
         <span style={{ fontFamily: T.body, fontSize: 13, fontWeight: 500, color: T.warmGrey, whiteSpace: 'nowrap' }}>Filter</span>
         <MultiSelect
           placeholder="All countries"
@@ -10649,7 +11025,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
         </Button>
         {(filterCountries.size > 0 || filterAssetClasses.size > 0 || selectedIds) && (
           <button onClick={() => { setFilterCountries(new Set()); setFilterAssetClasses(new Set()); setSelectedIds(null); }}
-            style={{ fontFamily: T.body, fontSize: 12, padding: '4px 10px', border: '1px solid ' + T.border, borderRadius: 6, background: '#fff', cursor: 'pointer', color: T.warmGrey }}>
+            style={{ fontFamily: T.body, fontSize: 12, padding: '4px 10px', border: '1px solid ' + T.border, borderRadius: 6, background: T.surface, cursor: 'pointer', color: T.warmGrey }}>
             Clear filters
           </button>
         )}
@@ -10749,7 +11125,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                   fontFamily: T.mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
                   padding: '4px 10px', borderRadius: 20, border: '1px solid',
                   borderColor: catalogueFilter === cat ? (cat === 'all' ? T.forest : CATEGORY_COLORS[cat]) : T.border,
-                  background: catalogueFilter === cat ? (cat === 'all' ? '#f0faf4' : CATEGORY_BG[cat]) : '#fff',
+                  background: catalogueFilter === cat ? (cat === 'all' ? T.successBg : CATEGORY_BG[cat]) : T.surface,
                   color: catalogueFilter === cat ? (cat === 'all' ? T.forest : CATEGORY_COLORS[cat]) : T.warmGrey,
                   cursor: 'pointer',
                 }}>{cat === 'all' ? 'All' : CATEGORY_LABELS[cat]}</button>
@@ -10766,7 +11142,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                 const hasFuelSwitch = !!m.fuelSwitch;
                 const assignCount = assignments.filter(a => a.retrofitId === m.id).length;
                 return (
-                  <div key={m.id} style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, padding: 16 }}>
+                  <div key={m.id} style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
@@ -10784,7 +11160,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                         </span>
                       ))}
                       {hasFuelSwitch && (
-                        <span style={{ fontFamily: T.mono, fontSize: 10, background: '#dbeafe', padding: '3px 7px', borderRadius: 4, color: T.infoText }}>
+                        <span style={{ fontFamily: T.mono, fontSize: 10, background: T.selBg, padding: '3px 7px', borderRadius: 4, color: T.infoText }}>
                           {m.fuelSwitch.from.map(fc => fuelLabel(fc)).join(' + ')} → {fuelLabel(m.fuelSwitch.to)}{m.fuelSwitch.cop > 1 ? ` · ${m.fuelSwitch.cop}× efficiency` : ''}
                         </span>
                       )}
@@ -10833,7 +11209,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                     const hasFuelSwitch = !!r.fuelSwitch;
                     const assignCount = assignments.filter(a => a.retrofitId === r.id).length;
                     return (
-                      <div key={r.id} style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: 8, padding: 16 }}>
+                      <div key={r.id} style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: 8, padding: 16 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                           <div style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: T.ink }}>{r.name}</div>
                           <div style={{ display: 'flex', gap: 2, flexShrink: 0, marginLeft: 8 }}>
@@ -10849,7 +11225,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                             </span>
                           ))}
                           {hasFuelSwitch && (
-                            <span style={{ fontFamily: T.mono, fontSize: 10, background: '#dbeafe', padding: '3px 7px', borderRadius: 4, color: T.infoText }}>
+                            <span style={{ fontFamily: T.mono, fontSize: 10, background: T.selBg, padding: '3px 7px', borderRadius: 4, color: T.infoText }}>
                               {r.fuelSwitch.from.map(fc => fuelLabel(fc)).join(' + ')} → {fuelLabel(r.fuelSwitch.to)}{r.fuelSwitch.cop > 1 ? ` · ${r.fuelSwitch.cop}× efficiency` : ''}
                             </span>
                           )}
@@ -10893,7 +11269,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
               {filteredBuildings.map(b => {
                 const bAssignments = assignments.filter(a => a.buildingId === b.id).sort((x, y) => x.implementationYear - y.implementationYear);
                 return (
-                  <div key={b.id} style={{ background: '#fff', border: '1px solid ' + T.border, borderRadius: '8px', padding: 16 }}>
+                  <div key={b.id} style={{ background: T.surface, border: '1px solid ' + T.border, borderRadius: '8px', padding: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: bAssignments.length > 0 ? 10 : 0 }}>
                       <div style={{ fontFamily: T.body, fontSize: 13, fontWeight: 600, color: T.ink }}>{b.name}</div>
                       {retrofits.length > 0 && (
@@ -11018,7 +11394,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                   (filterAssetClasses.size > 0 && !b.assetClasses?.some(ac => filterAssetClasses.has(ac.code)));
                 const isChecked = !filterExcluded && (!selectedIds || selectedIds.has(b.id));
                 return (
-                  <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 6, cursor: filterExcluded ? 'default' : 'pointer', background: filterExcluded ? T.paper : isChecked ? '#f0fdf4' : 'transparent', opacity: filterExcluded ? 0.45 : 1 }}>
+                  <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 6, cursor: filterExcluded ? 'default' : 'pointer', background: filterExcluded ? T.paper : isChecked ? T.successBgLight : 'transparent', opacity: filterExcluded ? 0.45 : 1 }}>
                     <input type="checkbox" checked={isChecked} disabled={filterExcluded} onChange={() => {
                       if (filterExcluded) return;
                       setSelectedIds(prev => {
@@ -11090,7 +11466,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
             {previewMeasure.fuelSwitch && (
               <div>
                 <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: T.warmGrey, marginBottom: 6 }}>Fuel switch</div>
-                <div style={{ padding: '8px 10px', background: '#dbeafe', borderRadius: 6, fontFamily: T.body, fontSize: 13, color: T.infoText }}>
+                <div style={{ padding: '8px 10px', background: T.selBg, borderRadius: 6, fontFamily: T.body, fontSize: 13, color: T.infoText }}>
                   {previewMeasure.fuelSwitch.from.map(fc => fuelLabel(fc)).join(' + ')} → {fuelLabel(previewMeasure.fuelSwitch.to)}{previewMeasure.fuelSwitch.cop > 1 ? ` · ${previewMeasure.fuelSwitch.cop}× efficiency` : ''}
                 </div>
               </div>
@@ -11165,11 +11541,11 @@ class ErrorBoundary extends React.Component {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
-            <strong style={{ fontSize: 15, color: '#991b1b' }}>CarbonTool encountered an error</strong>
+            <strong style={{ fontSize: 15, color: T.errorText }}>CarbonTool encountered an error</strong>
           </div>
           <pre style={{
-            background: '#fff', border: '1px solid ' + T.roseSoft, borderRadius: 6,
-            padding: 16, fontSize: 12, overflowX: 'auto', color: '#7f1d1d',
+            background: T.surface, border: '1px solid ' + T.roseSoft, borderRadius: 6,
+            padding: 16, fontSize: 12, overflowX: 'auto', color: T.errorText,
             whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '0 0 16px',
           }}>
             {error.toString()}
@@ -11359,6 +11735,18 @@ export default function App() {
   const [exchangeRates,     setExchangeRates,     ratesLoaded] = useStorage(STORAGE_KEYS.currencySettings + ':rates', DEFAULT_EXCHANGE_RATES);
 
   const [currencyOpen, setCurrencyOpen] = useState(false);
+
+  // Light / dark theme. Initialised (and applied to <html>) at module load to
+  // avoid a flash; this state just keeps React in sync and persists the choice.
+  const [theme, setThemeState] = useState(getInitialTheme);
+  const toggleTheme = useCallback(() => {
+    setThemeState(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      applyTheme(next);
+      try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   const { toasts, push } = useToasts();
   // Surface storage write failures as toasts so users know data may not persist
   useEffect(() => {
@@ -11484,6 +11872,17 @@ export default function App() {
             );
           })}
         </nav>
+        {/* Theme toggle — sun in light mode, moon in dark mode */}
+        <button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '6px', cursor: 'pointer', color: '#fff', flexShrink: 0, marginLeft: 8, width: 30, height: 30 }}
+        >
+          {theme === 'dark'
+            ? <Moon size={15} strokeWidth={2} />
+            : <Sun size={15} strokeWidth={2} />}
+        </button>
         {/* Currency selector in header */}
         <button
           onClick={() => setCurrencyOpen(true)}
@@ -11550,7 +11949,7 @@ export default function App() {
       {/* ── Nav guard modal — unsaved Energy-tab changes ─────────────────────── */}
       {navGuardOpen && (
         <div style={{ position:'fixed', inset:0, zIndex:1100, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ background:'#fff', borderRadius:12, padding:28, width:420, boxShadow:SHADOW_LG, fontFamily:T.body }}>
+          <div style={{ background:T.surface, borderRadius:12, padding:28, width:420, boxShadow:SHADOW_LG, fontFamily:T.body }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
               <AlertTriangle size={20} color={T.amber} strokeWidth={1.8} />
               <span style={{ fontSize:16, fontWeight:700, color:T.ink }}>Unsaved changes</span>
@@ -11560,7 +11959,7 @@ export default function App() {
             </p>
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
               <button onClick={() => { setNavGuardOpen(false); setPendingTab(null); }}
-                style={{ padding:'8px 16px', borderRadius:8, border:'1px solid '+T.border, background:'#fff', color:T.inkSoft, fontFamily:T.body, fontSize:13, cursor:'pointer' }}>
+                style={{ padding:'8px 16px', borderRadius:8, border:'1px solid '+T.border, background:T.surface, color:T.inkSoft, fontFamily:T.body, fontSize:13, cursor:'pointer' }}>
                 Cancel
               </button>
               <button onClick={() => {
