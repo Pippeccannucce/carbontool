@@ -1052,7 +1052,11 @@ async function downloadStyledTemplate({ filename, sheetName, columns, rows, drop
 
   rows.forEach((rowObj, ri) => {
     const r = ws.addRow(rowObj);
-    r.eachCell(c => { c.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB'); c.font = { name:'Arial', size:10, color:{argb:ARGB('374151')} }; c.border = thin; });
+    r.eachCell((c, colNum) => {
+      c.fill = fillOf(ri % 2 === 0 ? 'FFFFFF' : 'F9FAFB'); c.font = { name:'Arial', size:10, color:{argb:ARGB('374151')} }; c.border = thin;
+      const colDef = columns[colNum - 1];
+      if (colDef?.numFmt && typeof c.value === 'number') c.numFmt = colDef.numFmt;
+    });
   });
 
   // Inline-list dropdowns (short, fixed lists like true/false or currency codes).
@@ -1184,6 +1188,13 @@ async function buildPortfolioWorkbook({ filename, rows, lastDataRow }) {
     });
   });
   ws.views = [{ state: 'frozen', ySplit: 1 }]; // freeze header row only — a real split (ySplit > 0), valid
+
+  // Portfolio is the sheet people actually work in — it should be both the first
+  // tab and the one shown on open. Lookups only exists to back the dropdown data
+  // validations, so reorder it after Portfolio and set it as the active tab.
+  ws.orderNo = 0;
+  lk.orderNo = 1;
+  wb.views = [{ activeTab: 0 }];
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1522,7 +1533,12 @@ function pivotLongToWide(records) {
     periodSet.add(period);
     const key = Object.values(id).join('||');
     if (!rowMap.has(key)) rowMap.set(key, { ...id });
-    rowMap.get(key)[period] = value;
+    // Coerce numeric-looking strings to real numbers so the exported Excel cell
+    // is typed as a number (right-aligned, no "stored as text" warning, usable
+    // in formulas). Grid cells are edited as strings internally, so without this
+    // a value like "9276.3" would otherwise be written out as literal text.
+    const v = (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) ? Number(value) : value;
+    rowMap.get(key)[period] = v;
   });
   const periods = [...periodSet].sort((a, b) => {
     const [ma, ya] = a.split('-').map(Number);
@@ -3970,7 +3986,9 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       Object.entries(row.cells).forEach(([mk, val]) => {
         if (val === '' || val == null) return;
         const [y, mo] = mk.split('-').map(Number);
-        tall.push({ id: uid(), buildingId: row.buildingId, fuel: row.fuel, year: y, month: mo, kwh: val, occupancy: occMap[row.buildingId]?.[mk] ?? '' });
+        const rawOcc = occMap[row.buildingId]?.[mk];
+        const occ = rawOcc === '' || rawOcc == null ? '' : Number(rawOcc);
+        tall.push({ id: uid(), buildingId: row.buildingId, fuel: row.fuel, year: y, month: mo, kwh: Number(val), occupancy: occ });
       });
     });
     setEnergy(tall); setDirty(false);
@@ -3981,7 +3999,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       Object.entries(row.cells).forEach(([mk, val]) => {
         if (val === '' || val == null) return;
         const [y, mo] = mk.split('-').map(Number);
-        billsTall.push({ id: uid(), buildingId: row.buildingId, fuel: row.fuel, currency: row.currency || reportingCurrency, year: y, month: mo, cost: val });
+        billsTall.push({ id: uid(), buildingId: row.buildingId, fuel: row.fuel, currency: row.currency || reportingCurrency, year: y, month: mo, cost: Number(val) });
       });
     });
     setBills(billsTall);
@@ -3995,7 +4013,15 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const deleteBRow = (ri) => mutateB(prev => prev.filter((_, i) => i !== ri));
   const updateBMeta = (ri, patch) => mutateB(prev => prev.map((r, i) => i === ri ? { ...r, ...patch } : r));
 
+  // In-flight guards for the three async export buttons below — without these, a
+  // quick double-click (or a slow first-time ExcelJS chunk load tempting a second
+  // click) fires the export twice, producing two separate success toasts.
+  const [eExporting, setEExporting] = useState(false);
+  const [oExporting, setOExporting] = useState(false);
+  const [bExporting, setBExporting] = useState(false);
+
   const exportEnergyData = () => {
+    if (eExporting) return;
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
     const records = energy
       .filter(r => r.fuel !== 'occupancy' && r.kwh != null && r.kwh !== '')
@@ -4008,12 +4034,15 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       { key: 'building_name', width: 24 }, { key: 'fuel_type', width: 16 },
       ...periods.map(p => ({ key: p, width: 10 })),
     ];
+    setEExporting(true);
     downloadStyledTemplate({ filename: 'energy_export.xlsx', sheetName: 'Energy', columns, rows, frozenCols: 2 })
       .then(() => push('Energy data exported — ' + rows.length + ' building/fuel rows', 'success'))
-      .catch(() => push('Export failed', 'error'));
+      .catch(() => push('Export failed', 'error'))
+      .finally(() => setEExporting(false));
   };
 
   const exportOccupancyData = () => {
+    if (oExporting) return;
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
     const seen = new Set();
     const records = [];
@@ -4030,18 +4059,17 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       { key: 'building_name', width: 24 },
       ...periods.map(p => ({ key: p, width: 10 })),
     ];
+    setOExporting(true);
     downloadStyledTemplate({ filename: 'occupancy_export.xlsx', sheetName: 'Occupancy', columns, rows, frozenCols: 1 })
       .then(() => push('Occupancy exported — ' + rows.length + ' buildings', 'success'))
-      .catch(() => push('Export failed', 'error'));
+      .catch(() => push('Export failed', 'error'))
+      .finally(() => setOExporting(false));
   };
 
   // Wide-format templates: one row per building (+ fuel), one column per Month-Year
-  // (European format, e.g. "01-2024"). Years are based on the current date so the
-  // template is always recent — last year through this year — rather than a
-  // hardcoded range that goes stale.
-  const TEMPLATE_YEARS = (() => { const y = new Date().getFullYear(); return [y - 1, y]; })();
-  const TEMPLATE_PERIODS = TEMPLATE_YEARS.flatMap(y =>
-    Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0') + '-' + y));
+  // (e.g. "01-2024"). Periods follow the Date range currently selected at the top
+  // of the tab, so the downloaded template lines up with what the grid is showing.
+  const TEMPLATE_PERIODS = useMemo(() => monthCols.map(c => String(c.month).padStart(2, '0') + '-' + c.year), [monthCols]);
   // Mild seasonal swing (higher in winter) for heating fuels, so the example looks real.
   const seasonalFactor = (period, on) => {
     if (!on) return 1;
@@ -4136,6 +4164,7 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   };
 
   const exportBillsData = () => {
+    if (bExporting) return;
     const bldgName = (id) => buildings.find(b => b.id === id)?.name || id;
     const records = bills.map(b => ({
       // building_id kept internally for row-key uniqueness only — not shown as a column.
@@ -4149,9 +4178,11 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       { key: 'fuel_type', width: 16 }, { key: 'currency', width: 12 },
       ...periods.map(p => ({ key: p, width: 10 })),
     ];
+    setBExporting(true);
     downloadStyledTemplate({ filename: 'bills_export.xlsx', sheetName: 'Bills', columns, rows, frozenCols: 3 })
       .then(() => push('Bills exported — ' + rows.length + ' building/fuel rows', 'success'))
-      .catch(() => push('Export failed', 'error'));
+      .catch(() => push('Export failed', 'error'))
+      .finally(() => setBExporting(false));
   };
 
   const exportBillsTemplate = () => {
@@ -4755,7 +4786,7 @@ if (buildings.length===0) return (
           <input ref={occupancyFileInputRef} type="file" accept=".csv,.xlsx" style={{display:'none'}} onChange={handleOccupancyCsvUpload} />
           <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={()=>energyFileInputRef.current?.click()}>Upload data</Button>
-          {energy.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" onClick={exportEnergyData}>Export data</Button>}
+          {energy.length > 0 && !dirty && <Button variant="secondary" icon={Download} size="sm" disabled={eExporting} onClick={exportEnergyData}>{eExporting ? 'Exporting…' : 'Export data'}</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addERow}>Add row</Button>
         </div>
       </div>
@@ -4835,7 +4866,7 @@ if (buildings.length===0) return (
           <thead style={{position:'sticky',top:0,zIndex:10}}>
             <tr style={{background:T.slate}}>
               <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid rgba(255,255,255,0.1)',position:'sticky',left:0,background:T.slate,zIndex:11,width:BLD_W,minWidth:BLD_W}}>Building name</th>
-              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid '+T.border,width:FUEL_W,minWidth:FUEL_W}}>Fuel type</th>
+              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid rgba(255,255,255,0.1)',position:'sticky',left:BLD_W,background:T.slate,zIndex:11,width:FUEL_W,minWidth:FUEL_W}}>Fuel type</th>
               {monthCols.map(c=><th key={c.key} style={{padding:'10px 6px',textAlign:'right',fontFamily:T.mono,fontSize:10,fontWeight:500,color:'rgba(255,255,255,0.6)',whiteSpace:'nowrap',borderRight:'1px solid rgba(255,255,255,0.06)'}}>{c.label}</th>)}
               <th style={{width:36}}/>
             </tr>
@@ -4852,7 +4883,7 @@ if (buildings.length===0) return (
                   <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e=>updateEMeta(rowIdx,{buildingId:e.target.value})}
                     style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}} />
                 </td>
-                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,width:FUEL_W,minWidth:FUEL_W}}>
+                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:BLD_W,background:rowBg,zIndex:2,width:FUEL_W,minWidth:FUEL_W}}>
                   <select value={row.fuel||''} onChange={e=>updateEMeta(rowIdx,{fuel:e.target.value})}
                     style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.inkSoft,outline:'none',cursor:'pointer'}}>
                     <option value="">— select —</option>
@@ -4871,6 +4902,12 @@ if (buildings.length===0) return (
                     />
                 ))}
                 <td style={{padding:'0 4px',textAlign:'center'}}>
+                  {(rowIssue.errors.length > 0 || rowIssue.warnings.length > 0) && (
+                    <div title={rowIssue.errors.concat(rowIssue.warnings).join(' · ')}
+                      style={{ fontFamily: T.mono, fontSize: 9, color: rowIssue.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
+                      {rowIssue.errors.length > 0 ? '●' : '○'}
+                    </div>
+                  )}
                   <button onClick={()=>deleteERow(rowIdx)} style={{background:'none',border:'none',cursor:'pointer',color:T.warmGreyLight,padding:4,display:'flex',alignItems:'center'}}><X size={13} strokeWidth={2}/></button>
                 </td>
               </tr>
@@ -4904,7 +4941,7 @@ if (buildings.length===0) return (
         <div style={{display:'flex',gap:8}}>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => occupancyFileInputRef.current?.click()}>Upload data</Button>
-          {oRows.length > 0 && <Button variant="secondary" icon={Download} size="sm" onClick={exportOccupancyData}>Export data</Button>}
+          {oRows.length > 0 && <Button variant="secondary" icon={Download} size="sm" disabled={oExporting} onClick={exportOccupancyData}>{oExporting ? 'Exporting…' : 'Export data'}</Button>}
           <Button variant="primary" icon={Plus} size="sm" onClick={addORow}>Add row</Button>
         </div>
       </div>
@@ -5005,6 +5042,12 @@ if (buildings.length===0) return (
                     />
                 ))}
                 <td style={{padding:'0 4px',textAlign:'center'}}>
+                  {(rowIssue.errors.length > 0 || rowIssue.warnings.length > 0) && (
+                    <div title={rowIssue.errors.concat(rowIssue.warnings).join(' · ')}
+                      style={{ fontFamily: T.mono, fontSize: 9, color: rowIssue.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
+                      {rowIssue.errors.length > 0 ? '●' : '○'}
+                    </div>
+                  )}
                   <button onClick={()=>deleteORow(rowIdx)} style={{background:'none',border:'none',cursor:'pointer',color:T.warmGreyLight,padding:4,display:'flex',alignItems:'center'}}><X size={13} strokeWidth={2}/></button>
                 </td>
               </tr>
@@ -5068,7 +5111,7 @@ if (buildings.length===0) return (
         <div style={{ display: 'flex', gap: 8 }}>
           <Button variant="secondary" icon={Download} size="sm" onClick={exportBillsTemplate}>Download Excel template</Button>
           <Button variant="secondary" icon={Upload} size="sm" onClick={() => billsFileInputRef.current?.click()}>Upload data</Button>
-          <Button variant="secondary" size="sm" icon={Download} onClick={exportBillsData}>Export data</Button>
+          <Button variant="secondary" size="sm" icon={Download} disabled={bExporting} onClick={exportBillsData}>{bExporting ? 'Exporting…' : 'Export data'}</Button>
           <Button variant="primary" icon={Plus} size="sm" onClick={addBRow}>Add row</Button>
         </div>
       </div>
@@ -5180,7 +5223,7 @@ if (buildings.length===0) return (
                   <thead style={{ position: 'sticky', top: 0, zIndex: T.z.stickyHeader }}>
                     <tr style={{ background: T.slate }}>
                       <th style={{ padding: '10px 14px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: T.slate, zIndex: T.z.stickyCorner, width: BLD_W, minWidth: BLD_W }}>Building name</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid rgba(255,255,255,0.1)' }}>Fuel</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid rgba(255,255,255,0.1)', position: 'sticky', left: BLD_W, background: T.slate, zIndex: T.z.stickyCorner, width: 180, minWidth: 180 }}>Fuel</th>
                       <th style={{ padding: '10px 8px', textAlign: 'center', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid rgba(255,255,255,0.2)' }}>Currency</th>
                       {monthCols.map(c => <th key={c.key} style={{ padding: '10px 6px', textAlign: 'right', fontFamily: T.mono, fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', borderRight: '1px solid rgba(255,255,255,0.06)' }}>{c.label}</th>)}
                       <th style={{ width: 36 }} />
@@ -5193,13 +5236,14 @@ if (buildings.length===0) return (
                       const rowCurrency = row.currency || reportingCurrency;
                       const sym = currencySymbol(rowCurrency);
                       const bIssue = bRowIssues[rowIdx] || { errors: [], warnings: [] };
+                      const rowBg = bIssue.errors.length > 0 ? T.errorBg : bIssue.warnings.length > 0 ? T.warningBg : T.surface;
                       return (
-                        <tr key={row.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: bIssue.errors.length > 0 ? T.errorBg : bIssue.warnings.length > 0 ? T.warningBg : T.warningBg, borderLeft: bIssue.errors.length > 0 ? '3px solid ' + T.rose : bIssue.warnings.length > 0 ? '3px solid ' + T.amber : '3px solid transparent' }}>
-                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: T.warningBg, zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
+                        <tr key={row.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: rowBg, borderLeft: bIssue.errors.length > 0 ? '3px solid ' + T.rose : bIssue.warnings.length > 0 ? '3px solid ' + T.amber : '3px solid transparent' }}>
+                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: rowBg, zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
                             <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e => updateBMeta(rowIdx, { buildingId: e.target.value })}
                               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 13, color: T.ink, outline: 'none', cursor: 'pointer' }} />
                           </td>
-                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border }}>
+                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: BLD_W, background: rowBg, zIndex: T.z.stickyCell, width: 180, minWidth: 180 }}>
                             <select value={row.fuel || ''} onChange={e => updateBMeta(rowIdx, { fuel: e.target.value })}
                               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 12, color: T.ink, outline: 'none', cursor: 'pointer', minWidth: 140 }}>
                               {fuels.filter(f => f.isElectricity).map(f => <option key={f.code} value={f.code}>{f.name}</option>)}
@@ -5287,7 +5331,7 @@ const EF_FUEL_W = 200;
 // Read-only browse of all CRREM country × year electricity EFs and
 // all configured non-electricity fuel EFs, with audit CSV export.
 // =================================================================
-function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
+function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs, push }) {
   const [search,    setSearch]    = useState('');
   const [resetArmed, setResetArmed] = useState(false); // two-click confirm for reset-all
   const gridRef   = useRef(null);
@@ -5430,20 +5474,63 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
     onEditChange, commitEdit, handleInputKeyDown, makeGridKeyDown, makePasteHandler,
   } = useGridEngine(elecSurface, { onUndo: () => undoEf() });
 
-  // Export
-  const exportAuditCsv = () => {
-    const elecRows = countries.map(co => {
-      const row = { country_code: co.code, country_name: co.name, fuel_type: 'electricity' };
+  // Export — CRREM electricity grid factors only (non-electricity fuels have
+  // their own export below the fuels grid). Styled .xlsx, matching the Energy
+  // data tab exports: dark header, alternating rows, frozen country columns.
+  const [elecExporting, setElecExporting] = useState(false);
+  const exportElectricityData = () => {
+    if (elecExporting) return;
+    const rows = countries.map(co => {
+      const row = { country_code: co.code, country_name: co.name };
       years.forEach((y, i) => { row[y] = getVal(co, i) ?? ''; });
       return row;
     });
-    const fuelRows = fuels.filter(f => !f.isElectricity).map(f => {
-      const e = efs[f.code]; const mode = e?.mode || 'fixed';
-      const row = { country_code: 'ALL', country_name: f.name, fuel_type: f.code };
-      years.forEach(y => { row[y] = mode === 'fixed' ? (e?.value ?? '') : (e?.timeSeries?.[y] ?? ''); });
-      return row;
-    });
-    directDownload('crrem_emission_factors_audit.csv', [...elecRows, ...fuelRows]);
+    const columns = [
+      { key: 'country_code', width: 12, note: 'ISO country code.' },
+      { key: 'country_name', width: 22 },
+      ...years.map(y => ({ key: String(y), width: 9, numFmt: '0.0000' })),
+    ];
+    setElecExporting(true);
+    downloadStyledTemplate({ filename: 'crrem_electricity_factors.xlsx', sheetName: 'Electricity factors', columns, rows, frozenCols: 2 })
+      .then(() => push?.('Electricity factors exported — ' + rows.length + ' countries', 'success'))
+      .catch(() => push?.('Export failed', 'error'))
+      .finally(() => setElecExporting(false));
+  };
+
+  // Upload — overrides CRREM defaults per country/year. Accepts the file produced
+  // by Export data above, edited, or any .csv/.xlsx with the same columns
+  // (country_code or country_name, then one column per year).
+  const elecFileRef = useRef(null);
+  const uploadElectricityData = (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    parseUploadedTable(file, (results) => {
+      const data = results.data;
+      if (!data.length) { push?.('File is empty', 'error'); e.target.value = ''; return; }
+      pushEfHist();
+      const next = { ...electricityEfs };
+      let matched = 0, unmatched = 0;
+      data.forEach(row => {
+        const key = (row.country_code || row.country_name || '').toString().trim();
+        if (!key) return;
+        const co = countries.find(c => c.code.toLowerCase() === key.toLowerCase() || c.name.toLowerCase() === key.toLowerCase());
+        if (!co) { unmatched++; return; }
+        matched++;
+        const crrem = CRREM_DATA.emission_factors_electricity[co.code] ?? [];
+        const base = next[co.code] ? [...next[co.code]] : [...crrem];
+        years.forEach((y, ci) => {
+          const raw = row[String(y)];
+          if (raw === undefined || raw === null || raw === '') return;
+          const num = parseFloat(raw);
+          if (!isNaN(num)) base[ci] = num;
+        });
+        const allMatch = base.every((v, i) => v === crrem[i] || (v == null && crrem[i] == null));
+        if (allMatch) delete next[co.code]; else next[co.code] = base;
+      });
+      setElectricityEfs(next);
+      if (matched === 0) push?.('No rows imported — check that country_code/country_name matches a CRREM country.', 'error');
+      else push?.('Imported overrides for ' + matched + ' countr' + (matched === 1 ? 'y' : 'ies') + (unmatched > 0 ? ' — ' + unmatched + ' row' + (unmatched === 1 ? '' : 's') + ' skipped (country not recognised)' : ''), 'success');
+      e.target.value = '';
+    }, () => { push?.('Failed to parse file', 'error'); e.target.value = ''; });
   };
 
   const hasOverrides = Object.keys(electricityEfs).length > 0;
@@ -5476,8 +5563,12 @@ function EfViewer({ fuels, efs, electricityEfs = {}, setElectricityEfs }) {
               Confirm reset?
             </Button>
           )}
-          <Button variant="secondary" icon={Download} size="sm" onClick={exportAuditCsv}>
-            Export data
+          <input ref={elecFileRef} type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={uploadElectricityData} />
+          <Button variant="secondary" icon={Upload} size="sm" onClick={() => elecFileRef.current?.click()}>
+            Upload data
+          </Button>
+          <Button variant="secondary" icon={Download} size="sm" disabled={elecExporting} onClick={exportElectricityData}>
+            {elecExporting ? 'Exporting…' : 'Export data'}
           </Button>
         </div>
       </div>
@@ -5793,28 +5884,41 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
     push('Fuel removed', 'success');
   };
 
-  const downloadTemplate = () => {
-    const header = 'fuel_code,' + EF_YEARS.join(',');
+  const [nefExporting, setNefExporting] = useState(false);
+  const exportNonElecData = () => {
+    if (nefExporting) return;
     const rows = editableFuels.map(f => {
-      const vals = EF_YEARS.map(y => {
-        const e = efs[f.code]; const mode = e?.mode || 'fixed';
-        if (mode === 'fixed') return (e?.value ?? f.defaultEf ?? '').toString();
-        return (e?.timeSeries?.[y] ?? '').toString();
-      });
-      return f.code + ',' + vals.join(',');
+      const e = efs[f.code]; const mode = e?.mode || 'fixed';
+      const row = { fuel_name: f.name, fuel_code: f.code };
+      EF_YEARS.forEach(y => { row[y] = (mode === 'fixed' ? (e?.value ?? f.defaultEf ?? '') : (e?.timeSeries?.[y] ?? '')); });
+      return row;
     });
-    const csv = [header, ...rows].join('\n');
-    const a = document.createElement('a'); a.href = 'data:text/csv,' + encodeURIComponent(csv); a.download = 'emission_factors.csv'; a.click();
+    if (!rows.length) { push('No non-electricity fuels to export', 'warning'); return; }
+    const columns = [
+      { key: 'fuel_name', width: 22 },
+      { key: 'fuel_code', width: 16, note: 'Must match an existing fuel code — add new fuels with Custom fuel first.' },
+      ...EF_YEARS.map(y => ({ key: String(y), width: 9, numFmt: '0.0000' })),
+    ];
+    setNefExporting(true);
+    downloadStyledTemplate({ filename: 'non_electricity_emission_factors.xlsx', sheetName: 'Non-electricity', columns, rows, frozenCols: 2 })
+      .then(() => push('Non-electricity factors exported — ' + rows.length + ' fuels', 'success'))
+      .catch(() => push('Export failed', 'error'))
+      .finally(() => setNefExporting(false));
   };
 
-  const uploadCsv = (e) => {
+  const uploadNonElecData = (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    Papa.parse(file, { header: true, skipEmptyLines: true, complete: ({ data }) => {
+    parseUploadedTable(file, (results) => {
+      const data = results.data;
+      if (!data.length) { push('File is empty', 'error'); e.target.value = ''; return; }
       pushUndo(efs);
       let newEfs = { ...efs };
+      let matched = 0, unmatched = 0;
       data.forEach(row => {
-        const code = row.fuel_code; if (!code) return;
-        const fuel = fuels.find(f => f.code === code); if (!fuel || fuel.isElectricity) return;
+        const code = (row.fuel_code || '').toString().trim(); if (!code) return;
+        const fuel = fuels.find(f => f.code === code);
+        if (!fuel || fuel.isElectricity) { unmatched++; return; }
+        matched++;
         const ts = {};
         EF_YEARS.forEach(y => { const v = parseFloat(row[y]); if (!isNaN(v)) ts[y] = v; });
         const vals = Object.values(ts);
@@ -5823,8 +5927,10 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
         else newEfs = { ...newEfs, [code]: { ...newEfs[code], mode: 'ts', timeSeries: ts } };
       });
       setEfs(newEfs);
-      push('Emission factors imported', 'success');
-    }});
+      if (matched === 0) push('No rows imported — check that fuel_code matches an existing non-electricity fuel.', 'error');
+      else push('Imported factors for ' + matched + ' fuel' + (matched === 1 ? '' : 's') + (unmatched > 0 ? ' — ' + unmatched + ' row' + (unmatched === 1 ? '' : 's') + ' skipped (unknown or electricity fuel)' : ''), 'success');
+      e.target.value = '';
+    }, () => { push('Failed to parse file', 'error'); e.target.value = ''; });
   };
 
   const csvRef = useRef(null);
@@ -5834,12 +5940,6 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
       <PageHeader
         title="Emission factors"
         description="Edit emission factors directly in the grid. Each row is a fuel; columns are years 2020–2050. Non-electricity fuels can be fixed (same EF every year) or variable (per-year time series). Electricity EFs come from CRREM and are read-only."
-        actions={<>
-          <input ref={csvRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={uploadCsv} />
-          <Button variant="secondary" icon={Download} onClick={downloadTemplate}>Export data</Button>
-          <Button variant="secondary" icon={Upload} onClick={() => csvRef.current?.click()}>Upload CSV</Button>
-          <Button icon={Plus} onClick={() => setAddOpen(true)}>Custom fuel</Button>
-        </>}
       />
 
       <TabInfoAccordion title="About this section">
@@ -5849,13 +5949,19 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
         <p style={{ margin: 0, color: T.warmGrey }}>Custom fuels can be added if your portfolio uses an energy type not in the default list (e.g. biomass, biogas). Assign them an annual emission factor and they will appear in the energy grid and carbon calculations.</p>
       </TabInfoAccordion>
 
-      <EfViewer fuels={fuels} efs={efs} electricityEfs={electricityEfs} setElectricityEfs={setElectricityEfs} />
+      <EfViewer fuels={fuels} efs={efs} electricityEfs={electricityEfs} setElectricityEfs={setElectricityEfs} push={push} />
 
       <div style={{ marginTop: 48, paddingTop: 32, borderTop: '1px solid ' + T.border }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div>
             <span style={{ fontFamily: T.body, fontSize: 14, fontWeight: 600, color: T.ink }}>Non-electricity fuels</span>
             <span style={{ fontFamily: T.body, fontSize: 12, color: T.warmGrey, marginLeft: 8 }}>edit factors directly · fixed or per-year time series</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input ref={csvRef} type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={uploadNonElecData} />
+            <Button variant="secondary" icon={Upload} size="sm" onClick={() => csvRef.current?.click()}>Upload data</Button>
+            <Button variant="secondary" icon={Download} size="sm" disabled={nefExporting} onClick={exportNonElecData}>{nefExporting ? 'Exporting…' : 'Export data'}</Button>
+            <Button icon={Plus} size="sm" onClick={() => setAddOpen(true)}>Custom fuel</Button>
           </div>
         </div>
 
@@ -8208,8 +8314,16 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
   const uniqueCountries    = [...new Set(buildings.map(b => b.country).filter(Boolean))];
   const uniqueAssetClasses = [...new Set(buildings.flatMap(b => (b.assetClasses || []).map(ac => ac.code)).filter(Boolean))];
 
-  // Shared tooltip style
+  // Shared tooltip style. Recharts' default Tooltip colours each item's text
+  // with that series' own fill colour (not the surrounding contentStyle), so a
+  // bar's red/amber/green data colour can land on the dark tooltip background
+  // and become unreadable — itemStyle/labelStyle override that back to a
+  // legible themed colour. cursor themes the hover-highlight band behind bars,
+  // which otherwise defaults to an unthemed light grey.
   const ttStyle = { background: T.surface, border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12, color: T.ink };
+  const ttItemStyle = { color: T.ink };
+  const ttLabelStyle = { color: T.ink, fontWeight: 600, marginBottom: 4 };
+  const ttCursor = { fill: T.paper, opacity: 0.6 };
 
   const StackToggle = StackToggleModule;
 
@@ -8443,7 +8557,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
           style={{ width: 200 }} />
 
         <Button
-          variant={(selectedIds || focusedBuildingId) ? 'success' : 'secondary'}
+          variant={(selectedIds || focusedBuildingId || filterCountries.size > 0 || filterAssetClasses.size > 0) ? 'success' : 'secondary'}
           size="sm" icon={Building2}
           onClick={() => setSelectorOpen(true)}
         >
@@ -8451,6 +8565,8 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
             ? filteredBuildings.length + ' building' + (filteredBuildings.length !== 1 ? 's' : '') + ' selected'
             : selectedIds
             ? selectedIds.size + ' building' + (selectedIds.size !== 1 ? 's' : '') + ' selected'
+            : (filterCountries.size > 0 || filterAssetClasses.size > 0)
+            ? filteredBuildings.length + ' building' + (filteredBuildings.length !== 1 ? 's' : '') + ' selected'
             : 'Select buildings…'}
         </Button>
         {(() => {
@@ -8671,7 +8787,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                   <CartesianGrid strokeDasharray="3 3" stroke={T.borderSoft} />
                   <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                   <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kg" width={55} />
-                  <Tooltip formatter={(v, n) => [v?.toFixed(2) + ' kgCO₂/m²/yr', n]} contentStyle={ttStyle} />
+                  <Tooltip formatter={(v, n) => [v?.toFixed(2) + ' kgCO₂/m²/yr', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
                   <Legend wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8 }} iconType="plainline" />
                   <Line type="monotone" dataKey="ci"      name="Portfolio (BAU)" stroke={T.rose}   strokeWidth={2} dot={false} connectNulls />
                   {showRetrofit && portfolioHasRetrofits && <Line type="monotone" dataKey="ciRetro" name="Retrofit scenario" stroke={T.forestSoft} strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />}
@@ -8688,7 +8804,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                   <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                   <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kWh" width={72}
                     tickFormatter={v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v} />
-                  <Tooltip formatter={(v, n) => [v?.toFixed(1) + ' kWh/m²/yr', n]} contentStyle={ttStyle} />
+                  <Tooltip formatter={(v, n) => [v?.toFixed(1) + ' kWh/m²/yr', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
                   <Legend wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8 }} iconType="plainline" />
                   <Line type="monotone" dataKey="ei"      name="Portfolio (BAU)" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
                   {showRetrofit && portfolioHasRetrofits && <Line type="monotone" dataKey="eiRetro" name="Retrofit scenario" stroke="#f97316" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />}
@@ -8719,7 +8835,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                       formatter={(v, n) => carbonFuelNorm
                         ? [v?.toFixed(1) + '%', fuelLabel(n)]
                         : [v?.toFixed(2) + ' tCO₂e', fuelLabel(n)]}
-                      contentStyle={ttStyle}
+                      contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor}
                     />
                     <Legend
                       iconType="square" iconSize={10}
@@ -8764,7 +8880,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                       formatter={(v, n) => energyFuelNorm
                         ? [v?.toFixed(1) + '%', fuelLabel(n)]
                         : [v?.toLocaleString() + ' kWh', fuelLabel(n)]}
-                      contentStyle={ttStyle}
+                      contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor}
                     />
                     <Legend
                       iconType="square" iconSize={10}
@@ -8796,7 +8912,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                 : 'tCO₂e/yr at ' + refYear + ' · sorted highest to lowest';
               const eTip  = emissionsPerM2
                 ? (v, n, p) => [v?.toFixed(1) + ' kgCO₂e/m²/yr', p.payload?.fullName || p.payload?.name]
-                : (v, n, p) => [v?.toFixed(1) + ' tCO₂e  ·  ' + p.payload?.ci + ' kgCO₂/m²/yr', p.payload?.fullName || p.payload?.name];
+                : (v, n, p) => [v?.toFixed(1) + ' tCO₂e', p.payload?.fullName || p.payload?.name];
               const allSorted = [...bldgChartData].sort((a, b) => b[eKey] - a[eKey]);
               const chartH = Math.max(CHART_SCROLL_H, allSorted.length * BAR_ROW_H);
               return (
@@ -8814,9 +8930,9 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <CartesianGrid strokeDasharray="3 3" stroke={T.borderSoft} horizontal={false} />
                           <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} unit={eUnit} />
                           <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                          <Tooltip formatter={eTip} contentStyle={ttStyle} position={{ x: 'auto' }} />
+                          <Tooltip formatter={eTip} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} position={{ x: 'auto' }} />
                           <Bar dataKey={eKey} name="Emissions" radius={[0, 3, 3, 0]} style={{ cursor: 'pointer' }}
-                            onClick={(data) => { if (data?.id) { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } }}>
+                            onClick={(data) => { if (data?.id) { if (focusedBuildingId === data.id) { setFocusedBuildingId(null); setSelectedIds(null); } else { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } } }}>
                             {(() => {
                               const vals = allSorted.map(e => e[eKey] || 0);
                               const minV = Math.min(...vals);
@@ -8855,7 +8971,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                 : 'kWh/yr (normalised) at ' + refYear + ' · sorted highest to lowest';
               const eTip  = energyPerM2
                 ? (v, n, p) => [v?.toFixed(1) + ' kWh/m²/yr', p.payload?.fullName || p.payload?.name]
-                : (v, n, p) => [v?.toLocaleString() + ' kWh  ·  ' + p.payload?.ei + ' kWh/m²/yr', p.payload?.fullName || p.payload?.name];
+                : (v, n, p) => [v?.toLocaleString() + ' kWh', p.payload?.fullName || p.payload?.name];
               const eFmt  = energyPerM2
                 ? undefined
                 : v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'k' : v;
@@ -8877,9 +8993,9 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                             tickFormatter={eFmt} />
                           <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                          <Tooltip formatter={eTip} contentStyle={ttStyle} position={{ x: 'auto' }} />
+                          <Tooltip formatter={eTip} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} position={{ x: 'auto' }} />
                           <Bar dataKey={eKey} name="Energy" radius={[0, 3, 3, 0]} style={{ cursor: 'pointer' }}
-                            onClick={(data) => { if (data?.id) { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } }}>
+                            onClick={(data) => { if (data?.id) { if (focusedBuildingId === data.id) { setFocusedBuildingId(null); setSelectedIds(null); } else { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } } }}>
                             {(() => {
                               const vals = allSorted.map(e => e[eKey] || 0);
                               const minV = Math.min(...vals);
@@ -8927,7 +9043,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                         <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                           tickFormatter={v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v} />
                         <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (est.)' : ''), p.payload?.name]} contentStyle={ttStyle} />
+                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (est.)' : ''), p.payload?.name]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
                         <Bar dataKey="cost" name="Cost" radius={[0, 3, 3, 0]}>
                           {billsFuelChartData.map((entry, i) => (
                             <Cell key={i} fill={entry.color} opacity={entry.inferred ? 0.45 : 1} />
@@ -8959,9 +9075,9 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                         <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                           tickFormatter={v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v} />
                         <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (estimated)' : ''), p.payload?.fullName || p.payload?.name]} contentStyle={ttStyle} />
+                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (estimated)' : ''), p.payload?.fullName || p.payload?.name]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
                         <Bar dataKey="cost" name="Cost" radius={[0, 3, 3, 0]} style={{ cursor: 'pointer' }}
-                          onClick={(data) => { if (data?.id) { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } }}>
+                          onClick={(data) => { if (data?.id) { if (focusedBuildingId === data.id) { setFocusedBuildingId(null); setSelectedIds(null); } else { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } } }}>
                           {(() => {
                             const vals = billsBldgChartData.map(e => e.cost);
                             const minV = Math.min(...vals), maxV = Math.max(...vals), range = maxV - minV || 1;
@@ -9195,9 +9311,9 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <td style={{ padding: '12px 14px', color: T.inkSoft }}>{countryName(b.country)}</td>
                           <td style={{ padding: '12px 14px', color: T.inkSoft, fontSize: 12 }}>{(b.assetClasses||[]).map(ac => assetClassName(ac.code)).join(', ')}</td>
                           <td style={{ padding: '12px 14px', textAlign: 'right', color: T.inkSoft, fontFamily: T.mono, fontSize: 12 }}>{Number(b.gia).toLocaleString()}</td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: isStranded ? T.rose : T.ink, fontWeight: isStranded ? 600 : 400 }}>{ci != null ? ci.toFixed(1) : '—'}</td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{pw != null ? pw.toFixed(1) : '—'}</td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{dispBC != null ? dispBC.toFixed(1) : '—'}</td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: isStranded ? T.rose : T.ink, fontWeight: isStranded ? 600 : 400 }}>{ci != null ? ci.toFixed(2) : '—'}</td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{pw != null ? pw.toFixed(2) : '—'}</td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.inkSoft }}>{dispBC != null ? dispBC.toFixed(2) : '—'}</td>
                           <td style={{ padding: '12px 14px' }}>
                             {isStranded && <span style={{ background: T.errorBg, color: T.rose, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid var(--ct-roseSoft)' }}>Stranded</span>}
                             {isOnTrack  && <span style={{ background: T.successBg, color: T.successText, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-block', border: '1px solid var(--ct-forestSoft)' }}>On track</span>}
@@ -10828,6 +10944,9 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
   const hasRetrofits = portfolio?.ci_t_retro && Object.values(portfolio.ci_t_retro).some(v => v != null);
 
   const ttStyle = { background: T.surface, border: '1px solid ' + T.border, padding: '10px 14px', borderRadius: 6, fontFamily: T.body, fontSize: 12, color: T.ink };
+  const ttItemStyle = { color: T.ink };
+  const ttLabelStyle = { color: T.ink, fontWeight: 600, marginBottom: 4 };
+  const ttCursor = { fill: T.paper, opacity: 0.6 };
 
   const ciChartData = useMemo(() => {
     if (!portfolio) return [];
@@ -11015,12 +11134,14 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
           options={uniqueAssetClasses.map(c => ({ value: c, label: assetClassName(c) }))}
           style={{ width: 200 }} />
         <Button
-          variant={selectedIds ? 'success' : 'secondary'}
+          variant={(selectedIds || filterCountries.size > 0 || filterAssetClasses.size > 0) ? 'success' : 'secondary'}
           size="sm" icon={Building2}
           onClick={() => setSelectorOpen(true)}
         >
           {selectedIds
             ? selectedIds.size + ' building' + (selectedIds.size !== 1 ? 's' : '') + ' selected'
+            : (filterCountries.size > 0 || filterAssetClasses.size > 0)
+            ? filteredBuildings.length + ' building' + (filteredBuildings.length !== 1 ? 's' : '') + ' selected'
             : 'Select buildings…'}
         </Button>
         {(filterCountries.size > 0 || filterAssetClasses.size > 0 || selectedIds) && (
@@ -11061,7 +11182,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                 <CartesianGrid strokeDasharray="3 3" stroke={T.borderSoft} />
                 <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                 <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kg" width={55} />
-                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(2) + ' kgCO₂/m²/yr' : '—', n]} contentStyle={ttStyle} />
+                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(2) + ' kgCO₂/m²/yr' : '—', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
                 <Line type="monotone" dataKey="ci"      name="BAU"     stroke={T.rose}        strokeWidth={2} dot={false} connectNulls />
                 {hasRetrofits && <Line type="monotone" dataKey="ciRetro" name="Retrofit" stroke="#f97316" strokeWidth={2.5} strokeDasharray="5 3" dot={false} connectNulls />}
                 <Line type="monotone" dataKey="pathway" name="Pathway"  stroke='#7c3aed'      strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls />
@@ -11091,7 +11212,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                 <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                 <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kWh" width={65}
                   tickFormatter={v => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v} />
-                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(1) + ' kWh/m²/yr' : '—', n]} contentStyle={ttStyle} />
+                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(1) + ' kWh/m²/yr' : '—', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
                 <Line type="monotone" dataKey="ei"      name="BAU"     stroke="#3b82f6"  strokeWidth={2} dot={false} connectNulls />
                 {hasRetrofits && <Line type="monotone" dataKey="eiRetro" name="Retrofit" stroke="#f97316" strokeWidth={2.5} strokeDasharray="5 3" dot={false} connectNulls />}
                 <Line type="monotone" dataKey="pathway" name="Pathway"  stroke='#7c3aed' strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls />
