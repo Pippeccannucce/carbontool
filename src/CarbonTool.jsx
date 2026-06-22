@@ -919,6 +919,22 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const countryName = (code) => CRREM_DATA.countries.find(c => c.code === code)?.name || code;
 const assetClassName = (code) => CRREM_DATA.asset_classes.find(c => c.code === code)?.name || code;
 
+// Format a CO₂e quantity with automatic unit switching:
+//   ≥ 1 t      → "1,234 tCO₂e"   (rounded to nearest whole tonne)
+//   0.001–1 t  → "456 kgCO₂e"    (kilograms — avoids "0 tCO₂e" for small portfolios)
+//   0          → "0 kgCO₂e"
+//   < 0        → prefix with "−"
+// Returns { value, unit } so callers can style the unit separately if needed,
+// or use fmtCo2Str for a plain concatenated string.
+function fmtCo2(tonnes) {
+  if (tonnes == null || isNaN(tonnes)) return { value: '—', unit: '' };
+  const abs = Math.abs(tonnes);
+  const sign = tonnes < 0 ? '−' : '';
+  if (abs >= 1) return { value: sign + Math.round(abs).toLocaleString(), unit: ' tCO₂e' };
+  return { value: sign + Math.round(abs * 1000).toLocaleString(), unit: ' kgCO₂e' };
+}
+function fmtCo2Str(tonnes) { const f = fmtCo2(tonnes); return f.value + f.unit; }
+
 // Last successful CSV is held here so a fallback modal can show it.
 let __lastCsv = { name: '', text: '' };
 const __csvListeners = new Set();
@@ -3541,7 +3557,14 @@ function useGridEngine(surfaces, { onUndo, onCopied, onPasted } = {}) {
   const commitEdit = () => {
     if (!editCell) return;
     const { tag, rowIdx, colIdx } = editCell;
-    surf(tag)?.applyEdits([{ r: rowIdx, c: colIdx, raw: editVal }]);
+    // Only commit if the value actually changed — otherwise simply clicking into a
+    // cell and clicking away (e.g. to press a toolbar button) would unconditionally
+    // mark the grid dirty, hiding the Export/Clear buttons even though nothing was
+    // edited.
+    const original = surf(tag)?.getRaw(rowIdx, colIdx) ?? '';
+    if (editVal !== original) {
+      surf(tag)?.applyEdits([{ r: rowIdx, c: colIdx, raw: editVal }]);
+    }
     setEditCell(null);
   };
 
@@ -4013,6 +4036,23 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   const deleteBRow = (ri) => mutateB(prev => prev.filter((_, i) => i !== ri));
   const updateBMeta = (ri, patch) => mutateB(prev => prev.map((r, i) => i === ri ? { ...r, ...patch } : r));
 
+  // Auto-populate Bills from Energy: when an Energy row settles on a concrete
+  // building + fuel, make sure a matching (empty) Bills row exists so the user
+  // only has to type the cost — not also pick the building/fuel/currency again.
+  // - Renewables are skipped: there's no utility bill for self-generated energy
+  //   (the Bills fuel dropdown doesn't even offer it), so a stub would just be
+  //   noise the user has to delete.
+  // - Never overwrites or removes an existing row, so real bill data already
+  //   entered is untouched even if the matching Energy row is later edited/deleted.
+  // - Checked against bRowsRef (not bRows) so this stays correct even when
+  //   called multiple times in the same tick (e.g. rapid row adds).
+  const ensureBillStub = useCallback((buildingId, fuel) => {
+    if (!buildingId || !fuel || fuel === 'renewables') return;
+    const exists = bRowsRef.current.some(r => r.buildingId === buildingId && r.fuel === fuel);
+    if (exists) return;
+    mutateB(prev => [...prev, { id: uid(), buildingId, fuel, currency: reportingCurrency, cells: {} }]);
+  }, [mutateB, reportingCurrency]);
+
   // In-flight guards for the three async export buttons below — without these, a
   // quick double-click (or a slow first-time ExcelJS chunk load tempting a second
   // click) fires the export twice, producing two separate success toasts.
@@ -4442,7 +4482,10 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
       if (allBlank && errors.length === 0) warnings.push('No kWh values entered');
       if (dupRowSet.has(i) && !allBlank) warnings.push('Duplicate building / fuel combo');
       // Consumption present for this fuel, building has bills for other fuels, but none for this one.
-      if (!allBlank && row.buildingId && row.fuel && bidsWithAnyBill.has(row.buildingId) && !billKeys.has(row.buildingId + '||' + row.fuel))
+      // Renewables (on-site solar/wind generation) are excluded — there's no utility
+      // bill for self-generated energy, and the Bills grid doesn't even offer
+      // renewables as a fuel option, so this warning would always be a false positive.
+      if (!allBlank && row.buildingId && row.fuel && row.fuel !== 'renewables' && bidsWithAnyBill.has(row.buildingId) && !billKeys.has(row.buildingId + '||' + row.fuel))
         warnings.push('Consumption recorded but no utility bill entered for this fuel');
       return { errors, warnings };
     });
@@ -4657,14 +4700,25 @@ function EnergyTab({ buildings, energy, setEnergy, bills, setBills, fuels, repor
   });
 
   // ── Row operations ─────────────────────────────────────────────────────────
-  const addERow = () => mutateE(prev => [...prev, { id:uid(), buildingId: prev[prev.length-1]?.buildingId || buildings[0]?.id || '', fuel:'electricity', cells:{} }]);
+  const addERow = () => {
+    const buildingId = eRowsRef.current[eRowsRef.current.length - 1]?.buildingId || buildings[0]?.id || '';
+    const fuel = 'electricity';
+    mutateE(prev => [...prev, { id: uid(), buildingId, fuel, cells: {} }]);
+    ensureBillStub(buildingId, fuel);
+  };
   const addORow = () => mutateO(prev => {
     const bId = buildings.find(b => !prev.some(r => r.buildingId===b.id))?.id || buildings[0]?.id || '';
     return [...prev, { id:uid(), buildingId:bId, cells:{} }];
   });
   const deleteERow = (idx) => mutateE(prev => prev.filter((_,i)=>i!==idx));
   const deleteORow = (idx) => mutateO(prev => prev.filter((_,i)=>i!==idx));
-  const updateEMeta = (idx, patch) => mutateE(prev => prev.map((r,i)=>i!==idx?r:{...r,...patch}));
+  const updateEMeta = (idx, patch) => {
+    mutateE(prev => prev.map((r,i)=>i!==idx?r:{...r,...patch}));
+    if (patch.buildingId !== undefined || patch.fuel !== undefined) {
+      const row = { ...(eRowsRef.current[idx] || {}), ...patch };
+      ensureBillStub(row.buildingId, row.fuel);
+    }
+  };
   const updateOMeta = (idx, patch) => mutateO(prev => prev.map((r,i)=>i!==idx?r:{...r,...patch}));
 
   const yearOpts  = Array.from({length:15},(_,i)=>({value:2018+i,label:String(2018+i)}));
@@ -4859,16 +4913,15 @@ if (buildings.length===0) return (
           style={{overflow:'auto',background:T.surface,maxHeight:'40vh',outline:'none'}}>
         <table style={{borderCollapse:'collapse',tableLayout:'auto'}}>
           <colgroup>
-            <col style={{width:BLD_W}}/><col style={{width:FUEL_W}}/>
+            <col style={{width:36}}/><col style={{width:BLD_W}}/><col style={{width:FUEL_W}}/>
             {monthCols.map(c=><col key={c.key} style={{width:COL_W}}/>)}
-            <col style={{width:36}}/>
           </colgroup>
           <thead style={{position:'sticky',top:0,zIndex:10}}>
             <tr style={{background:T.slate}}>
-              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid rgba(255,255,255,0.1)',position:'sticky',left:0,background:T.slate,zIndex:11,width:BLD_W,minWidth:BLD_W}}>Building name</th>
-              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid rgba(255,255,255,0.1)',position:'sticky',left:BLD_W,background:T.slate,zIndex:11,width:FUEL_W,minWidth:FUEL_W}}>Fuel type</th>
+              <th style={{padding:'10px 4px',position:'sticky',left:0,background:T.slate,zIndex:11,width:36,minWidth:36,borderRight:'1px solid rgba(255,255,255,0.1)'}}/>
+              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid rgba(255,255,255,0.1)',position:'sticky',left:36,background:T.slate,zIndex:11,width:BLD_W,minWidth:BLD_W}}>Building name</th>
+              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid rgba(255,255,255,0.1)',position:'sticky',left:36+BLD_W,background:T.slate,zIndex:11,width:FUEL_W,minWidth:FUEL_W}}>Fuel type</th>
               {monthCols.map(c=><th key={c.key} style={{padding:'10px 6px',textAlign:'right',fontFamily:T.mono,fontSize:10,fontWeight:500,color:'rgba(255,255,255,0.6)',whiteSpace:'nowrap',borderRight:'1px solid rgba(255,255,255,0.06)'}}>{c.label}</th>)}
-              <th style={{width:36}}/>
             </tr>
           </thead>
           <tbody>
@@ -4879,11 +4932,20 @@ if (buildings.length===0) return (
               const rowBg = rowIssue.errors.length > 0 ? T.errorBg : rowIssue.warnings.length > 0 ? T.warningBg : T.surface;
               return (
               <tr key={row.id} style={{background: rowBg, borderBottom:'1px solid '+T.borderSoft}}>
-                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
+                <td style={{padding:'0 4px',textAlign:'center',position:'sticky',left:0,background:rowBg,zIndex:2,borderRight:'1px solid '+T.border,width:36,minWidth:36}}>
+                  {(rowIssue.errors.length > 0 || rowIssue.warnings.length > 0) && (
+                    <div title={rowIssue.errors.concat(rowIssue.warnings).join(' · ')}
+                      style={{ fontFamily: T.mono, fontSize: 9, color: rowIssue.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
+                      {rowIssue.errors.length > 0 ? '●' : '○'}
+                    </div>
+                  )}
+                  <button onClick={()=>deleteERow(rowIdx)} style={{background:'none',border:'none',cursor:'pointer',color:T.warmGreyLight,padding:4,display:'flex',alignItems:'center'}}><X size={13} strokeWidth={2}/></button>
+                </td>
+                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:36,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
                   <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e=>updateEMeta(rowIdx,{buildingId:e.target.value})}
                     style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}} />
                 </td>
-                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:BLD_W,background:rowBg,zIndex:2,width:FUEL_W,minWidth:FUEL_W}}>
+                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:36+BLD_W,background:rowBg,zIndex:2,width:FUEL_W,minWidth:FUEL_W}}>
                   <select value={row.fuel||''} onChange={e=>updateEMeta(rowIdx,{fuel:e.target.value})}
                     style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.inkSoft,outline:'none',cursor:'pointer'}}>
                     <option value="">— select —</option>
@@ -4901,15 +4963,6 @@ if (buildings.length===0) return (
                     onEditChange={onEditChange} onEditBlur={commitEdit} onEditKeyDown={handleInputKeyDown}
                     />
                 ))}
-                <td style={{padding:'0 4px',textAlign:'center'}}>
-                  {(rowIssue.errors.length > 0 || rowIssue.warnings.length > 0) && (
-                    <div title={rowIssue.errors.concat(rowIssue.warnings).join(' · ')}
-                      style={{ fontFamily: T.mono, fontSize: 9, color: rowIssue.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
-                      {rowIssue.errors.length > 0 ? '●' : '○'}
-                    </div>
-                  )}
-                  <button onClick={()=>deleteERow(rowIdx)} style={{background:'none',border:'none',cursor:'pointer',color:T.warmGreyLight,padding:4,display:'flex',alignItems:'center'}}><X size={13} strokeWidth={2}/></button>
-                </td>
               </tr>
               );
             })}
@@ -5007,15 +5060,14 @@ if (buildings.length===0) return (
           style={{overflow:'auto',background:T.surface,maxHeight:'40vh',outline:'none'}}>
         <table style={{borderCollapse:'collapse',tableLayout:'auto'}}>
           <colgroup>
-            <col style={{width:BLD_W}}/>
+            <col style={{width:36}}/><col style={{width:BLD_W}}/>
             {monthCols.map(c=><col key={c.key} style={{width:COL_W}}/>)}
-            <col style={{width:36}}/>
           </colgroup>
           <thead style={{position:'sticky',top:0,zIndex:10}}>
             <tr style={{background:T.slate}}>
-              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:T.slate,zIndex:11,width:BLD_W,minWidth:BLD_W}}>Building name</th>
+              <th style={{padding:'10px 4px',position:'sticky',left:0,background:T.slate,zIndex:11,width:36,minWidth:36,borderRight:'1px solid '+T.border}}/>
+              <th style={{padding:'10px 14px',textAlign:'left',fontFamily:T.body,fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.7)',borderRight:'1px solid '+T.border,position:'sticky',left:36,background:T.slate,zIndex:11,width:BLD_W,minWidth:BLD_W}}>Building name</th>
               {monthCols.map(c=><th key={c.key} style={{padding:'10px 6px',textAlign:'right',fontFamily:T.mono,fontSize:10,fontWeight:500,color:'rgba(255,255,255,0.6)',whiteSpace:'nowrap',borderRight:'1px solid rgba(255,255,255,0.06)'}}>{c.label}</th>)}
-              <th style={{width:36}}/>
             </tr>
           </thead>
           <tbody>
@@ -5026,7 +5078,16 @@ if (buildings.length===0) return (
               const rowBg = rowIssue.errors.length > 0 ? T.errorBg : rowIssue.warnings.length > 0 ? T.warningBg : T.successBgLight;
               return (
               <tr key={row.id} style={{background: rowBg, borderBottom:'1px solid '+T.borderSoft}}>
-                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:0,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
+                <td style={{padding:'0 4px',textAlign:'center',position:'sticky',left:0,background:rowBg,zIndex:2,borderRight:'1px solid '+T.border,width:36,minWidth:36}}>
+                  {(rowIssue.errors.length > 0 || rowIssue.warnings.length > 0) && (
+                    <div title={rowIssue.errors.concat(rowIssue.warnings).join(' · ')}
+                      style={{ fontFamily: T.mono, fontSize: 9, color: rowIssue.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
+                      {rowIssue.errors.length > 0 ? '●' : '○'}
+                    </div>
+                  )}
+                  <button onClick={()=>deleteORow(rowIdx)} style={{background:'none',border:'none',cursor:'pointer',color:T.warmGreyLight,padding:4,display:'flex',alignItems:'center'}}><X size={13} strokeWidth={2}/></button>
+                </td>
+                <td style={{padding:'4px 8px',borderRight:'1px solid '+T.border,position:'sticky',left:36,background:rowBg,zIndex:2,width:BLD_W,minWidth:BLD_W}}>
                   <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e=>updateOMeta(rowIdx,{buildingId:e.target.value})}
                     style={{width:'100%',border:'none',background:'transparent',fontFamily:T.body,fontSize:13,color:T.ink,outline:'none',cursor:'pointer'}} />
                 </td>
@@ -5041,15 +5102,6 @@ if (buildings.length===0) return (
                     onEditChange={onEditChange} onEditBlur={commitEdit} onEditKeyDown={handleInputKeyDown}
                     />
                 ))}
-                <td style={{padding:'0 4px',textAlign:'center'}}>
-                  {(rowIssue.errors.length > 0 || rowIssue.warnings.length > 0) && (
-                    <div title={rowIssue.errors.concat(rowIssue.warnings).join(' · ')}
-                      style={{ fontFamily: T.mono, fontSize: 9, color: rowIssue.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
-                      {rowIssue.errors.length > 0 ? '●' : '○'}
-                    </div>
-                  )}
-                  <button onClick={()=>deleteORow(rowIdx)} style={{background:'none',border:'none',cursor:'pointer',color:T.warmGreyLight,padding:4,display:'flex',alignItems:'center'}}><X size={13} strokeWidth={2}/></button>
-                </td>
               </tr>
               );
             })}
@@ -5213,20 +5265,20 @@ if (buildings.length===0) return (
                 style={{ overflow: 'auto', background: T.surface, maxHeight: '40vh', outline: 'none' }}>
                 <table style={{ borderCollapse: 'collapse', tableLayout: 'auto' }}>
                   <colgroup>
+                    <col style={{ width: 36 }} />
                     <col style={{ width: BLD_W }} />
                     <col style={{ width: 180 }} />
                     <col style={{ width: 160 }} />
                     <col style={{ width: 90 }} />
                     {monthCols.map(c => <col key={c.key} style={{ width: COL_W }} />)}
-                    <col style={{ width: 36 }} />
                   </colgroup>
                   <thead style={{ position: 'sticky', top: 0, zIndex: T.z.stickyHeader }}>
                     <tr style={{ background: T.slate }}>
-                      <th style={{ padding: '10px 14px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: T.slate, zIndex: T.z.stickyCorner, width: BLD_W, minWidth: BLD_W }}>Building name</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid rgba(255,255,255,0.1)', position: 'sticky', left: BLD_W, background: T.slate, zIndex: T.z.stickyCorner, width: 180, minWidth: 180 }}>Fuel</th>
+                      <th style={{ padding: '10px 4px', position: 'sticky', left: 0, background: T.slate, zIndex: T.z.stickyCorner, width: 36, minWidth: 36, borderRight: '1px solid ' + T.border }} />
+                      <th style={{ padding: '10px 14px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid ' + T.border, position: 'sticky', left: 36, background: T.slate, zIndex: T.z.stickyCorner, width: BLD_W, minWidth: BLD_W }}>Building name</th>
+                      <th style={{ padding: '10px 8px', textAlign: 'left', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid rgba(255,255,255,0.1)', position: 'sticky', left: 36 + BLD_W, background: T.slate, zIndex: T.z.stickyCorner, width: 180, minWidth: 180 }}>Fuel</th>
                       <th style={{ padding: '10px 8px', textAlign: 'center', fontFamily: T.body, fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.7)', borderRight: '1px solid rgba(255,255,255,0.2)' }}>Currency</th>
                       {monthCols.map(c => <th key={c.key} style={{ padding: '10px 6px', textAlign: 'right', fontFamily: T.mono, fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', borderRight: '1px solid rgba(255,255,255,0.06)' }}>{c.label}</th>)}
-                      <th style={{ width: 36 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -5239,11 +5291,22 @@ if (buildings.length===0) return (
                       const rowBg = bIssue.errors.length > 0 ? T.errorBg : bIssue.warnings.length > 0 ? T.warningBg : T.surface;
                       return (
                         <tr key={row.id} style={{ borderBottom: '1px solid ' + T.borderSoft, background: rowBg, borderLeft: bIssue.errors.length > 0 ? '3px solid ' + T.rose : bIssue.warnings.length > 0 ? '3px solid ' + T.amber : '3px solid transparent' }}>
-                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 0, background: rowBg, zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
+                          <td style={{ padding: '0 4px', textAlign: 'center', position: 'sticky', left: 0, background: rowBg, zIndex: T.z.stickyCell, borderRight: '1px solid ' + T.border, width: 36, minWidth: 36 }}>
+                            {(bRowIssues[rowIdx]?.errors.length > 0 || bRowIssues[rowIdx]?.warnings.length > 0) && (
+                              <div title={(bRowIssues[rowIdx]?.errors.concat(bRowIssues[rowIdx]?.warnings) || []).join(' · ')}
+                                style={{ fontFamily: T.mono, fontSize: 9, color: bRowIssues[rowIdx]?.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
+                                {bRowIssues[rowIdx]?.errors.length > 0 ? '●' : '○'}
+                              </div>
+                            )}
+                            <button onClick={() => deleteBRow(rowIdx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.warmGreyLight, padding: 4, display: 'flex', alignItems: 'center' }}>
+                              <X size={13} strokeWidth={2} />
+                            </button>
+                          </td>
+                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 36, background: rowBg, zIndex: T.z.stickyCell, width: BLD_W, minWidth: BLD_W }}>
                             <LazyBuildingSelect value={row.buildingId} buildings={buildings} onChange={e => updateBMeta(rowIdx, { buildingId: e.target.value })}
                               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 13, color: T.ink, outline: 'none', cursor: 'pointer' }} />
                           </td>
-                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: BLD_W, background: rowBg, zIndex: T.z.stickyCell, width: 180, minWidth: 180 }}>
+                          <td style={{ padding: '4px 8px', borderRight: '1px solid ' + T.border, position: 'sticky', left: 36 + BLD_W, background: rowBg, zIndex: T.z.stickyCell, width: 180, minWidth: 180 }}>
                             <select value={row.fuel || ''} onChange={e => updateBMeta(rowIdx, { fuel: e.target.value })}
                               style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: T.body, fontSize: 12, color: T.ink, outline: 'none', cursor: 'pointer', minWidth: 140 }}>
                               {fuels.filter(f => f.isElectricity).map(f => <option key={f.code} value={f.code}>{f.name}</option>)}
@@ -5267,17 +5330,6 @@ if (buildings.length===0) return (
                               onEditChange={onEditChange} onEditBlur={commitEdit} onEditKeyDown={handleInputKeyDown}
                             />
                           ))}
-                          <td style={{ padding: '0 4px', textAlign: 'center' }}>
-                            {(bRowIssues[rowIdx]?.errors.length > 0 || bRowIssues[rowIdx]?.warnings.length > 0) && (
-                              <div title={(bRowIssues[rowIdx]?.errors.concat(bRowIssues[rowIdx]?.warnings) || []).join(' · ')}
-                                style={{ fontFamily: T.mono, fontSize: 9, color: bRowIssues[rowIdx]?.errors.length > 0 ? T.rose : T.amber, padding: '2px 0', cursor: 'help' }}>
-                                {bRowIssues[rowIdx]?.errors.length > 0 ? '●' : '○'}
-                              </div>
-                            )}
-                            <button onClick={() => deleteBRow(rowIdx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.warmGreyLight, padding: 4, display: 'flex', alignItems: 'center' }}>
-                              <X size={13} strokeWidth={2} />
-                            </button>
-                          </td>
                         </tr>
                       );
                     })}
@@ -5970,6 +6022,7 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
         <div style={{ fontFamily: T.body, fontSize: 13, color: T.inkSoft, lineHeight: 1.5 }}>
           <strong>Natural gas default: 0.183 kgCO₂e/kWh</strong> (UK DEFRA, gross CV basis). Verify against the current year's publication for non-UK use.
           Electricity factors vary by country and year — see the CRREM electricity grid factors above.
+          Values that differ from the built-in default show in <strong style={{ color: '#7c3aed' }}>purple</strong> with an "overridden" badge — select the cell and press <kbd style={{ fontFamily: T.mono, fontSize: 11, background: T.paper, borderRadius: 3, padding: '1px 4px' }}>Delete</kbd> to reset it.
         </div>
       </div>
 
@@ -5985,7 +6038,8 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
           <table style={{ borderCollapse: 'collapse', fontFamily: T.body, fontSize: 12, tableLayout: 'fixed', minWidth: EF_FUEL_W + EF_YEARS.length * EF_COL_W + 120 }}>
             <thead>
               <tr style={{ background: T.paper, position: 'sticky', top: 0, zIndex: T.z.efHeader }}>
-                <th style={{ width: EF_FUEL_W, minWidth: EF_FUEL_W, textAlign: 'left', padding: '10px 14px', fontFamily: T.mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.warmGrey, borderBottom: '1px solid ' + T.border, position: 'sticky', left: 0, background: T.paper, zIndex: T.z.efCorner }}>
+                <th style={{ width: 36, minWidth: 36, padding: '10px 4px', borderBottom: '1px solid ' + T.border, position: 'sticky', left: 0, background: T.paper, zIndex: T.z.efCorner }} />
+                <th style={{ width: EF_FUEL_W, minWidth: EF_FUEL_W, textAlign: 'left', padding: '10px 14px', fontFamily: T.mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.warmGrey, borderBottom: '1px solid ' + T.border, position: 'sticky', left: 36, background: T.paper, zIndex: T.z.efCorner }}>
                   Fuel
                 </th>
                 <th style={{ width: 110, minWidth: 110, textAlign: 'center', padding: '10px 8px', fontFamily: T.mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.warmGrey, borderBottom: '1px solid ' + T.border, borderRight: '2px solid ' + T.border }}>
@@ -5996,7 +6050,6 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                     {y}
                   </th>
                 ))}
-                <th style={{ width: 36, borderBottom: '1px solid ' + T.border }} />
               </tr>
             </thead>
             <tbody>
@@ -6006,13 +6059,32 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                 const mode = e.mode || 'fixed';
                 const isFixed = mode === 'fixed';
                 const isDefault = !!DEFAULT_FUELS.find(d => d.code === fuel.code);
+                // True if any effective value for this fuel differs from its built-in
+                // default — drives the purple "overridden" badge next to the fuel name.
+                const rowHasOverride = isDefault && fuel.defaultEf != null && (
+                  isFixed
+                    ? Math.abs((e.value ?? fuel.defaultEf) - fuel.defaultEf) > 1e-9
+                    : Object.values(e.timeSeries || {}).some(v => v != null && Math.abs(v - fuel.defaultEf) > 1e-9)
+                );
                 return (
                   <tr key={fuel.code} style={{ borderBottom: '1px solid ' + T.borderSoft, background: T.surface }}>
+                    {/* Delete button — sticky left */}
+                    <td style={{ padding: '0 4px', textAlign: 'center', position: 'sticky', left: 0, background: T.surface, zIndex: T.z.stickyCell, width: 36, minWidth: 36, borderRight: '1px solid ' + T.border }}>
+                      {!isDefault && (
+                        <button onClick={() => handleDeleteFuel(fuel.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.warmGreyLight, padding: 4, display: 'flex', alignItems: 'center' }}>
+                          <X size={13} strokeWidth={2} />
+                        </button>
+                      )}
+                    </td>
                     {/* Fuel name — sticky left */}
-                    <td style={{ padding: '0 14px', position: 'sticky', left: 0, background: T.surface, zIndex: T.z.stickyCell, minWidth: EF_FUEL_W, maxWidth: EF_FUEL_W, borderRight: '1px solid ' + T.border }}>
+                    <td style={{ padding: '0 14px', position: 'sticky', left: 36, background: T.surface, zIndex: T.z.stickyCell, minWidth: EF_FUEL_W, maxWidth: EF_FUEL_W, borderRight: '1px solid ' + T.border }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 36 }}>
                         <span style={{ fontFamily: T.body, fontSize: 13, color: T.ink, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fuel.name}</span>
                         {!isDefault && <span style={{ fontSize: 10, background: T.paper, color: T.warmGrey, padding: '1px 5px', borderRadius: 4, border: '1px solid ' + T.border, flexShrink: 0 }}>custom</span>}
+                        {isDefault && rowHasOverride && (
+                          <span title={`Differs from the built-in default (${fuel.defaultEf?.toFixed(4)}). Select a cell and press Delete to reset it.`}
+                            style={{ fontSize: 10, background: T.violetBg, color: '#7c3aed', padding: '1px 5px', borderRadius: 4, border: '1px solid #7c3aed', flexShrink: 0, cursor: 'help' }}>overridden</span>
+                        )}
                       </div>
                     </td>
                     {/* Mode toggle */}
@@ -6036,11 +6108,18 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                       // of them updates the one shared value via the engine surface).
                       const isMirror = isFixed && colIdx > 0;
                       const displayVal = val === '' || val == null ? '' : parseFloat(val).toFixed(4);
+                      // Overridden when the effective value differs from the fuel's
+                      // built-in default — same purple convention as the CRREM
+                      // electricity grid above. Select a cell and press Delete to
+                      // reset it back to the default (handled by clearRect).
+                      const numVal = val === '' || val == null ? null : parseFloat(val);
+                      const isOverride = fuel.defaultEf != null && numVal != null && Math.abs(numVal - fuel.defaultEf) > 1e-9;
                       return (
                         <td key={year}
                           onMouseDown={(e2) => handleCellMouseDown(e2, 'f', rowIdx, colIdx)}
                           onMouseEnter={() => handleCellMouseEnter('f', rowIdx, colIdx)}
                           onDoubleClick={() => handleCellDblClick('f', rowIdx, colIdx)}
+                          title={isOverride ? `Built-in default: ${fuel.defaultEf.toFixed(4)} — press Delete to reset` : undefined}
                           style={{
                             padding: 0, textAlign: 'right',
                             borderRight: '1px solid ' + T.borderSoft,
@@ -6062,21 +6141,13 @@ function FactorsTab({ fuels, setFuels, efs, setEfs, electricityEfs, setElectrici
                               style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'right', fontFamily: T.mono, fontSize: 12, color: T.ink, outline: 'none', padding: '8px 6px', boxSizing: 'border-box' }}
                             />
                           ) : (
-                            <div style={{ padding: '8px 6px', fontFamily: T.mono, fontSize: 12, minHeight: 36, color: displayVal === '' ? T.borderSoft : T.ink }}>
+                            <div style={{ padding: '8px 6px', fontFamily: T.mono, fontSize: 12, minHeight: 36, color: displayVal === '' ? T.borderSoft : isOverride ? '#7c3aed' : T.ink, fontWeight: isOverride ? 600 : 400 }}>
                               {displayVal === '' ? (isMirror ? '' : '·') : displayVal}
                             </div>
                           )}
                         </td>
                       );
                     })}
-                    {/* Delete button */}
-                    <td style={{ padding: '0 4px', textAlign: 'center' }}>
-                      {!isDefault && (
-                        <button onClick={() => handleDeleteFuel(fuel.code)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.warmGreyLight, padding: 4, display: 'flex', alignItems: 'center' }}>
-                          <X size={13} strokeWidth={2} />
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -7391,7 +7462,7 @@ function getPinStyle(building, res, metric, firstDataYear, billsByBuilding = {},
     const capped = Math.min(tco2 / 5000, 1);
     color = interpolateRYG(capped);
     radius = 6 + Math.min(tco2 / 400, 10);
-    valueLabel = tco2.toFixed(2) + ' tCO₂e';
+    valueLabel = fmtCo2Str(tco2);
   } else if (metric === 'ei' && ei != null) {
     const capped = Math.min(ei / 400, 1);
     color = interpolateRYG(capped);
@@ -7853,6 +7924,10 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
   const [energyFuelNorm, setEnergyFuelNorm] = useState(false);
   const [hiddenCarbonFuels, setHiddenCarbonFuels] = useState(new Set());
   const [hiddenEnergyFuels, setHiddenEnergyFuels] = useState(new Set());
+  const [hiddenCILines,    setHiddenCILines]    = useState(new Set());
+  const [hiddenEILines,    setHiddenEILines]    = useState(new Set());
+  const toggleCILine = (key) => startTransition(() => setHiddenCILines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }));
+  const toggleEILine = (key) => startTransition(() => setHiddenEILines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }));
   const toggleCarbonFuel = (fc) => startTransition(() => setHiddenCarbonFuels(prev => { const n = new Set(prev); n.has(fc) ? n.delete(fc) : n.add(fc); return n; }));
   const toggleEnergyFuel  = (fc) => startTransition(() => setHiddenEnergyFuels(prev => { const n = new Set(prev); n.has(fc) ? n.delete(fc) : n.add(fc); return n; }));
 
@@ -8702,11 +8777,11 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
               );
             })()}
             {showRetrofit && cumulativeSaved != null ? (
-              <StatCard label="Cumulative savings by 2050" value={Math.round(cumulativeSaved).toLocaleString()} sublabel="tCO₂e saved vs BAU" accent={T.forest}
+              <StatCard label="Cumulative savings by 2050" value={fmtCo2(cumulativeSaved).value} sublabel={fmtCo2(cumulativeSaved).unit.trim() + ' saved vs BAU'} accent={T.forest}
                 tooltip="Total carbon emissions avoided between the base year and 2050 by the active retrofit scenario, compared to BAU." />
             ) : (
-              <StatCard label={'Total emissions ' + refYear} value={dispC != null ? Math.round(dispC).toLocaleString() : '—'}
-                sublabel={'tCO₂e/yr · ' + validBldgs.length + ' building' + (validBldgs.length !== 1 ? 's' : '')}
+              <StatCard label={'Total emissions ' + refYear} value={dispC != null ? fmtCo2(dispC).value : '—'}
+                sublabel={(dispC != null ? fmtCo2(dispC).unit.trim() + '/yr · ' : '') + validBldgs.length + ' building' + (validBldgs.length !== 1 ? 's' : '')}
                 delta={deltaC}
                 tooltip="Total portfolio carbon emissions at the reference year in tonnes of CO₂ equivalent per year. Sum of GIA × carbon intensity across all filtered buildings." />
             )}
@@ -8787,11 +8862,13 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                   <CartesianGrid strokeDasharray="3 3" stroke={T.borderSoft} />
                   <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                   <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kg" width={55} />
-                  <Tooltip formatter={(v, n) => [v?.toFixed(2) + ' kgCO₂/m²/yr', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
-                  <Legend wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8 }} iconType="plainline" />
-                  <Line type="monotone" dataKey="ci"      name="Portfolio (BAU)" stroke={T.rose}   strokeWidth={2} dot={false} connectNulls />
-                  {showRetrofit && portfolioHasRetrofits && <Line type="monotone" dataKey="ciRetro" name="Retrofit scenario" stroke={T.forestSoft} strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />}
-                  <Line type="monotone" dataKey="pathway" name="CRREM 1.5°C"     stroke='#7c3aed' strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
+                  <Tooltip formatter={(v, n) => [v?.toFixed(2) + ' kgCO₂/m²/yr', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} />
+                  <Legend iconType="plainline" wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8, cursor: 'pointer' }}
+                    onClick={e => toggleCILine(e.dataKey)}
+                    formatter={(value, entry) => (<span style={{ color: hiddenCILines.has(entry.dataKey) ? T.warmGreyLight : T.inkSoft, textDecoration: hiddenCILines.has(entry.dataKey) ? 'line-through' : 'none', opacity: hiddenCILines.has(entry.dataKey) ? 0.5 : 1 }}>{value}</span>)} />
+                  <Line type="monotone" dataKey="ci"      name="Portfolio (BAU)" stroke={T.rose}   strokeWidth={2} dot={false} connectNulls hide={hiddenCILines.has('ci')} />
+                  {showRetrofit && portfolioHasRetrofits && <Line type="monotone" dataKey="ciRetro" name="Retrofit scenario" stroke={T.forestSoft} strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls hide={hiddenCILines.has('ciRetro')} />}
+                  <Line type="monotone" dataKey="pathway" name="CRREM 1.5°C"     stroke='#7c3aed' strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls hide={hiddenCILines.has('pathway')} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -8804,11 +8881,13 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                   <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                   <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kWh" width={72}
                     tickFormatter={v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v} />
-                  <Tooltip formatter={(v, n) => [v?.toFixed(1) + ' kWh/m²/yr', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
-                  <Legend wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8 }} iconType="plainline" />
-                  <Line type="monotone" dataKey="ei"      name="Portfolio (BAU)" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
-                  {showRetrofit && portfolioHasRetrofits && <Line type="monotone" dataKey="eiRetro" name="Retrofit scenario" stroke="#f97316" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />}
-                  <Line type="monotone" dataKey="pathway" name="CRREM 1.5°C"     stroke='#7c3aed' strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />
+                  <Tooltip formatter={(v, n) => [v?.toFixed(1) + ' kWh/m²/yr', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} />
+                  <Legend iconType="plainline" wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8, cursor: 'pointer' }}
+                    onClick={e => toggleEILine(e.dataKey)}
+                    formatter={(value, entry) => (<span style={{ color: hiddenEILines.has(entry.dataKey) ? T.warmGreyLight : T.inkSoft, textDecoration: hiddenEILines.has(entry.dataKey) ? 'line-through' : 'none', opacity: hiddenEILines.has(entry.dataKey) ? 0.5 : 1 }}>{value}</span>)} />
+                  <Line type="monotone" dataKey="ei"      name="Portfolio (BAU)" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls hide={hiddenEILines.has('ei')} />
+                  {showRetrofit && portfolioHasRetrofits && <Line type="monotone" dataKey="eiRetro" name="Retrofit scenario" stroke="#f97316" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls hide={hiddenEILines.has('eiRetro')} />}
+                  <Line type="monotone" dataKey="pathway" name="CRREM 1.5°C"     stroke='#7c3aed' strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls hide={hiddenEILines.has('pathway')} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -8834,8 +8913,8 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                     <Tooltip
                       formatter={(v, n) => carbonFuelNorm
                         ? [v?.toFixed(1) + '%', fuelLabel(n)]
-                        : [v?.toFixed(2) + ' tCO₂e', fuelLabel(n)]}
-                      contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor}
+                        : [fmtCo2Str(v), fuelLabel(n)]}
+                      contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }}
                     />
                     <Legend
                       iconType="square" iconSize={10}
@@ -8880,7 +8959,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                       formatter={(v, n) => energyFuelNorm
                         ? [v?.toFixed(1) + '%', fuelLabel(n)]
                         : [v?.toLocaleString() + ' kWh', fuelLabel(n)]}
-                      contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor}
+                      contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }}
                     />
                     <Legend
                       iconType="square" iconSize={10}
@@ -8912,7 +8991,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                 : 'tCO₂e/yr at ' + refYear + ' · sorted highest to lowest';
               const eTip  = emissionsPerM2
                 ? (v, n, p) => [v?.toFixed(1) + ' kgCO₂e/m²/yr', p.payload?.fullName || p.payload?.name]
-                : (v, n, p) => [v?.toFixed(1) + ' tCO₂e', p.payload?.fullName || p.payload?.name];
+                : (v, n, p) => [fmtCo2Str(v), p.payload?.fullName || p.payload?.name];
               const allSorted = [...bldgChartData].sort((a, b) => b[eKey] - a[eKey]);
               const chartH = Math.max(CHART_SCROLL_H, allSorted.length * BAR_ROW_H);
               return (
@@ -8930,7 +9009,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <CartesianGrid strokeDasharray="3 3" stroke={T.borderSoft} horizontal={false} />
                           <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} unit={eUnit} />
                           <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                          <Tooltip formatter={eTip} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} position={{ x: 'auto' }} />
+                          <Tooltip formatter={eTip} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} position={{ x: 'auto' }} />
                           <Bar dataKey={eKey} name="Emissions" radius={[0, 3, 3, 0]} style={{ cursor: 'pointer' }}
                             onClick={(data) => { if (data?.id) { if (focusedBuildingId === data.id) { setFocusedBuildingId(null); setSelectedIds(null); } else { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } } }}>
                             {(() => {
@@ -8993,7 +9072,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                           <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                             tickFormatter={eFmt} />
                           <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                          <Tooltip formatter={eTip} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} position={{ x: 'auto' }} />
+                          <Tooltip formatter={eTip} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} position={{ x: 'auto' }} />
                           <Bar dataKey={eKey} name="Energy" radius={[0, 3, 3, 0]} style={{ cursor: 'pointer' }}
                             onClick={(data) => { if (data?.id) { if (focusedBuildingId === data.id) { setFocusedBuildingId(null); setSelectedIds(null); } else { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } } }}>
                             {(() => {
@@ -9043,7 +9122,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                         <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                           tickFormatter={v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v} />
                         <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (est.)' : ''), p.payload?.name]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
+                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (est.)' : ''), p.payload?.name]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} />
                         <Bar dataKey="cost" name="Cost" radius={[0, 3, 3, 0]}>
                           {billsFuelChartData.map((entry, i) => (
                             <Cell key={i} fill={entry.color} opacity={entry.inferred ? 0.45 : 1} />
@@ -9075,7 +9154,7 @@ function DashboardTabInner({ buildings, energy, bills = [], fuels, efs, retrofit
                         <XAxis type="number" orientation="top" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }}
                           tickFormatter={v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v} />
                         <YAxis type="category" dataKey="name" tick={{ fontFamily: T.body, fontSize: 11, fill: T.inkSoft }} tickLine={false} axisLine={false} width={140} />
-                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (estimated)' : ''), p.payload?.fullName || p.payload?.name]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
+                        <Tooltip formatter={(v, n, p) => [fmtVal(v) + (p.payload?.inferred ? ' (estimated)' : ''), p.payload?.fullName || p.payload?.name]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} />
                         <Bar dataKey="cost" name="Cost" radius={[0, 3, 3, 0]} style={{ cursor: 'pointer' }}
                           onClick={(data) => { if (data?.id) { if (focusedBuildingId === data.id) { setFocusedBuildingId(null); setSelectedIds(null); } else { setFocusedBuildingId(data.id); setSelectedIds(new Set([data.id])); } } }}>
                           {(() => {
@@ -10947,6 +11026,10 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
   const ttItemStyle = { color: T.ink };
   const ttLabelStyle = { color: T.ink, fontWeight: 600, marginBottom: 4 };
   const ttCursor = { fill: T.paper, opacity: 0.6 };
+  const [hiddenCILines, setHiddenCILines] = useState(new Set());
+  const [hiddenEILines, setHiddenEILines] = useState(new Set());
+  const toggleCILine = (key) => startTransition(() => setHiddenCILines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }));
+  const toggleEILine = (key) => startTransition(() => setHiddenEILines(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; }));
 
   const ciChartData = useMemo(() => {
     if (!portfolio) return [];
@@ -11154,7 +11237,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
         {cumulativeSaved != null && (
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ fontFamily: T.mono, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: T.warmGrey }}>Cumulative saving</div>
-            <div style={{ fontFamily: T.body, fontSize: 15, fontWeight: 700, color: T.forest }}>{cumulativeSaved.toLocaleString()} tCO₂e</div>
+            <div style={{ fontFamily: T.body, fontSize: 15, fontWeight: 700, color: T.forest }}>{fmtCo2Str(cumulativeSaved)}</div>
             <div style={{ fontFamily: T.body, fontSize: 11, color: T.warmGreyLight }}>{firstDataYear}–2050</div>
           </div>
         )}
@@ -11163,17 +11246,7 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 32 }}>
         {/* Carbon intensity chart */}
-        <SimpleChartCard
-          title="Carbon intensity"
-          subtitle="kgCO₂e/m²/yr · BAU vs retrofit vs CRREM 1.5°C"
-          legend={
-            <>
-              <LegendItem color={T.rose} label="BAU" />
-              {hasRetrofits && <LegendItem color="#f97316" label="Retrofit" dashed />}
-              <LegendItem color='#7c3aed' label="Pathway" dashed />
-            </>
-          }
-        >
+        <SimpleChartCard title="Carbon intensity" subtitle="kgCO₂e/m²/yr · BAU vs retrofit vs CRREM 1.5°C">
           {!portfolio ? (
             <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.warmGreyLight, fontFamily: T.body, fontSize: 13 }}>No energy data</div>
           ) : (
@@ -11182,27 +11255,20 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                 <CartesianGrid strokeDasharray="3 3" stroke={T.borderSoft} />
                 <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                 <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kg" width={55} />
-                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(2) + ' kgCO₂/m²/yr' : '—', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
-                <Line type="monotone" dataKey="ci"      name="BAU"     stroke={T.rose}        strokeWidth={2} dot={false} connectNulls />
-                {hasRetrofits && <Line type="monotone" dataKey="ciRetro" name="Retrofit" stroke="#f97316" strokeWidth={2.5} strokeDasharray="5 3" dot={false} connectNulls />}
-                <Line type="monotone" dataKey="pathway" name="Pathway"  stroke='#7c3aed'      strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls />
+                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(2) + ' kgCO₂/m²/yr' : '—', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} />
+                <Legend iconType="plainline" wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8, cursor: 'pointer' }}
+                  onClick={e => toggleCILine(e.dataKey)}
+                  formatter={(value, entry) => (<span style={{ color: hiddenCILines.has(entry.dataKey) ? T.warmGreyLight : T.inkSoft, textDecoration: hiddenCILines.has(entry.dataKey) ? 'line-through' : 'none', opacity: hiddenCILines.has(entry.dataKey) ? 0.5 : 1 }}>{value}</span>)} />
+                <Line type="monotone" dataKey="ci"      name="Portfolio (BAU)" stroke={T.rose}   strokeWidth={2}   dot={false} connectNulls hide={hiddenCILines.has('ci')} />
+                {hasRetrofits && <Line type="monotone" dataKey="ciRetro" name="Retrofit scenario" stroke="#f97316" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls hide={hiddenCILines.has('ciRetro')} />}
+                <Line type="monotone" dataKey="pathway" name="CRREM 1.5°C"     stroke='#7c3aed' strokeWidth={2}   strokeDasharray="6 3" dot={false} connectNulls hide={hiddenCILines.has('pathway')} />
               </LineChart>
             </ResponsiveContainer>
           )}
         </SimpleChartCard>
 
         {/* Energy intensity chart */}
-        <SimpleChartCard
-          title="Energy intensity"
-          subtitle="kWh/m²/yr · BAU vs retrofit vs CRREM 1.5°C"
-          legend={
-            <>
-              <LegendItem color="#3b82f6" label="BAU" />
-              {hasRetrofits && <LegendItem color="#f97316" label="Retrofit" dashed />}
-              <LegendItem color='#7c3aed' label="Pathway" dashed />
-            </>
-          }
-        >
+        <SimpleChartCard title="Energy intensity" subtitle="kWh/m²/yr · BAU vs retrofit vs CRREM 1.5°C">
           {!portfolio ? (
             <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.warmGreyLight, fontFamily: T.body, fontSize: 13 }}>No energy data</div>
           ) : (
@@ -11212,10 +11278,13 @@ function RetrofitsTab({ buildings, energy, fuels, efs, retrofits, setRetrofits, 
                 <XAxis dataKey="year" tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={{ stroke: T.border }} interval={4} />
                 <YAxis tick={{ fontFamily: T.mono, fontSize: 10, fill: T.warmGrey }} tickLine={false} axisLine={false} unit=" kWh" width={65}
                   tickFormatter={v => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v} />
-                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(1) + ' kWh/m²/yr' : '—', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} />
-                <Line type="monotone" dataKey="ei"      name="BAU"     stroke="#3b82f6"  strokeWidth={2} dot={false} connectNulls />
-                {hasRetrofits && <Line type="monotone" dataKey="eiRetro" name="Retrofit" stroke="#f97316" strokeWidth={2.5} strokeDasharray="5 3" dot={false} connectNulls />}
-                <Line type="monotone" dataKey="pathway" name="Pathway"  stroke='#7c3aed' strokeWidth={1.5} strokeDasharray="6 3" dot={false} connectNulls />
+                <Tooltip formatter={(v, n) => [v != null ? v.toFixed(1) + ' kWh/m²/yr' : '—', n]} contentStyle={ttStyle} itemStyle={ttItemStyle} labelStyle={ttLabelStyle} cursor={ttCursor} wrapperStyle={{ background: 'transparent', zIndex: 1000 }} />
+                <Legend iconType="plainline" wrapperStyle={{ fontFamily: T.body, fontSize: 11, paddingTop: 8, cursor: 'pointer' }}
+                  onClick={e => toggleEILine(e.dataKey)}
+                  formatter={(value, entry) => (<span style={{ color: hiddenEILines.has(entry.dataKey) ? T.warmGreyLight : T.inkSoft, textDecoration: hiddenEILines.has(entry.dataKey) ? 'line-through' : 'none', opacity: hiddenEILines.has(entry.dataKey) ? 0.5 : 1 }}>{value}</span>)} />
+                <Line type="monotone" dataKey="ei"      name="Portfolio (BAU)" stroke="#3b82f6" strokeWidth={2}   dot={false} connectNulls hide={hiddenEILines.has('ei')} />
+                {hasRetrofits && <Line type="monotone" dataKey="eiRetro" name="Retrofit scenario" stroke="#f97316" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls hide={hiddenEILines.has('eiRetro')} />}
+                <Line type="monotone" dataKey="pathway" name="CRREM 1.5°C"     stroke='#7c3aed' strokeWidth={2}   strokeDasharray="6 3" dot={false} connectNulls hide={hiddenEILines.has('pathway')} />
               </LineChart>
             </ResponsiveContainer>
           )}
